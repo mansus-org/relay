@@ -1,6 +1,6 @@
-import { AxiosError, type AxiosInstance } from 'axios'
+import type { AxiosInstance } from 'axios'
 
-import { err, ok, type ApiError, type FeedRepository, type PostRepository } from '../../domain'
+import { err, ok, type FeedRepository, type PostRepository } from '../../domain'
 import { FEED_PATH, POSTS_PATH } from './endpoints'
 import { toApiError } from './api-error'
 import { toPost, type PostDto } from './post-dto'

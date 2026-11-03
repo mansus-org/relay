@@ -10,6 +10,7 @@ import { Fab } from '../../src/presentation/components/Fab'
 import { FeedPostCard } from '../../src/presentation/components/FeedPostCard'
 import { GeoRing, GeoSun, GeoWedge } from '../../src/presentation/components/Geo'
 import { LocationOff } from '../../src/presentation/components/LocationOff'
+import { MonoLabel } from '../../src/presentation/components/MonoLabel'
 import { NewPostsBanner } from '../../src/presentation/components/NewPostsBanner'
 import { Ochre, PosterHeader } from '../../src/presentation/components/PosterHeader'
 import { colors, fonts } from '../../src/presentation/theme'
@@ -58,9 +59,16 @@ export default function Feed() {
         )
       }
       trailing={
-        <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => void logout()} hitSlop={8}>
-          <Avatar name={user?.name ?? '?'} seed={user?.id} size={30} />
-        </Pressable>
+        <View style={styles.trailing}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Communities" onPress={() => router.push('/communities')} hitSlop={8} style={styles.navLink}>
+            <MonoLabel size={12} tracking={0.12} color={colors.paper}>
+              Communities
+            </MonoLabel>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => void logout()} hitSlop={8}>
+            <Avatar name={user?.name ?? '?'} seed={user?.id} size={30} />
+          </Pressable>
+        </View>
       }
     />
   )
@@ -120,6 +128,8 @@ export default function Feed() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.paper },
   body: { flex: 1 },
+  trailing: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  navLink: { minHeight: 44, justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: colors.red },
   feed: { padding: 16, paddingBottom: 110, flexGrow: 1 },
   status: { marginTop: 32 },
   empty: { marginTop: 32, textAlign: 'center', fontFamily: fonts.body, fontSize: 17, color: colors.ink2 },

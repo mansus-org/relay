@@ -36,11 +36,12 @@ export function useCreateCommunity() {
   /** Whether "Use my current location" is effectively on: wanted and the position is known. */
   const locationOn = useLocation && location !== null
 
-  const submit = useCallback(async (): Promise<boolean> => {
-    if (busy) return false
+  /** Creates the community; resolves to its id, or null when it was not created. */
+  const submit = useCallback(async (): Promise<string | null> => {
+    if (busy) return null
     if (useLocation && !location) {
       setError('no-location')
-      return false
+      return null
     }
     setBusy(true)
     setError(null)
@@ -53,7 +54,7 @@ export function useCreateCommunity() {
     })
     setBusy(false)
     if (!result.ok) setError(result.error)
-    return result.ok
+    return result.ok ? result.value.id : null
   }, [busy, useLocation, location, createCommunity, name, description, radiusKm, allowPseudonyms])
 
   return {
