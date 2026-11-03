@@ -8,3 +8,9 @@ export const FEED_PATH = '/feed'
 export const POSTS_PATH = '/posts'
 export const STREAM_PATH = '/stream'
 export const JOINED_COMMUNITIES_PATH = '/communities/joined'
+
+// Communities. Assumed contract (RELY-89); the backend endpoints do not exist yet.
+export const COMMUNITIES_PATH = '/communities'
+export const communityPath = (id: string) => `/communities/${encodeURIComponent(id)}`
+export const communityFeedPath = (id: string) => `${communityPath(id)}/feed`
+export const communityJoinPath = (id: string) => `${communityPath(id)}/join`

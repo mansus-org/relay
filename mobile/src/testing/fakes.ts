@@ -1,6 +1,7 @@
 import {
   DEFAULT_SERVER_URL,
   type CellEncoder,
+  type CommunityDetails,
   type LatLng,
   type LocationProvider,
   type PlaceNamer,
@@ -116,3 +117,31 @@ export const makeFakePlaceNamer = (name: string | null = 'Pinheiros, São Paulo'
   const namer: PlaceNamer = { nameOf: async (position) => (calls.push(position), name) }
   return { namer, calls }
 }
+
+export const makeCommunity = (id: string, overrides: Partial<CommunityDetails> = {}): CommunityDetails => ({
+  id,
+  name: `Community ${id}`,
+  description: `About ${id}`,
+  memberCount: 10,
+  locationCell: null,
+  radiusKm: null,
+  allowPseudonyms: false,
+  isMember: false,
+  createdBy: null,
+  createdAt: null,
+  ...overrides,
+})
+
+export const makeCommunityDto = (id: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  name: `Community ${id}`,
+  description: `About ${id}`,
+  member_count: 84,
+  location_cell: 'cell:-23.56,-46.69',
+  radius_km: 5,
+  allow_pseudonyms: true,
+  is_member: false,
+  created_by: { id: 'u9', name: 'alice' },
+  created_at: '2026-07-29T12:00:00Z',
+  ...extra,
+})
