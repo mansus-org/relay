@@ -3,7 +3,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { clampRadius, DEFAULT_RADIUS_KM, type CreateCommunityError } from '../domain'
 import { useUseCases } from './use-cases'
 
-/** State of the create-community sheet. The device position is read once, without prompting. */
+/**
+ * State of the create-community sheet. The position is read once on open, asking for permission
+ * once — the sheet is where choosing a place is the whole point, unlike compose.
+ */
 export function useCreateCommunity() {
   const { resolveLocation, createCommunity } = useUseCases()
   const [name, setName] = useState('')

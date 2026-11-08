@@ -51,7 +51,11 @@ export default function NewCommunity() {
     if (id) router.replace(`/communities/${id}`)
   }
 
-  const where = form.locationBusy ? 'Finding your location…' : form.locationOn ? (form.placeName ?? 'Current location') : 'Location not available'
+  const where = form.locationBusy
+    ? 'Finding your location…'
+    : !form.useLocation
+      ? 'This community will not have a place'
+      : (form.placeName ?? 'Location not available')
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -89,6 +93,7 @@ export default function NewCommunity() {
             onChange={form.setRadiusKm}
             accessibilityLabel="Radius"
             valueText={`${form.radiusKm} kilometres`}
+            disabled={!form.locationOn}
           />
           <View style={styles.ends}>
             <MonoLabel size={11} tracking={0.1} color={colors.ink2}>{`${MIN_RADIUS_KM} km`}</MonoLabel>
