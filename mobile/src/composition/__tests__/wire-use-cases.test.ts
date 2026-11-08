@@ -116,4 +116,53 @@ describe('wired communities', () => {
     await useCases.joinCommunity({ communityId: 'here', cell: location.value.cell, pseudonym: 'sambista' })
     expect(JSON.parse(server.seen[1]!.data as string)).toEqual({ cell: location.value.cell, pseudonym: 'sambista' })
   })
+
+  it('creates a community with location_cell taken from the device position', async () => {
+    const { provider } = makeFakeLocationProvider({ granted: true })
+    const server = makeFakeServer(() => ({
+      status: 201,
+      data: { id: 'c1', name: 'Praça Benedito', description: 'Square group', member_count: 1, location_cell: 'x', radius_km: 12, allow_pseudonyms: true },
+    }))
+    const useCases = wireUseCases({
+      secureStorage: makeMemoryStorage({ access_token: 't' }),
+      preferenceStorage: makeMemoryStorage(),
+      httpAdapter: server.adapter,
+      locationProvider: provider,
+      placeNamer: makeFakePlaceNamer().namer,
+    })
+    const location = await useCases.resolveLocation({ prompt: true })
+    if (!location.ok) throw new Error('location failed')
+    const created = await useCases.createCommunity({
+      name: 'Praça Benedito',
+      description: 'Square group',
+      locationCell: location.value.cell,
+      radiusKm: 12,
+      allowPseudonyms: true,
+    })
+    expect(created.ok && created.value.id).toBe('c1')
+    expect(urlOf(server.seen[0]!)).toBe('https://relay.mansus.org/api/communities')
+    expect(JSON.parse(server.seen[0]!.data as string)).toEqual({
+      name: 'Praça Benedito',
+      description: 'Square group',
+      radius_km: 12,
+      allow_pseudonyms: true,
+      location_cell: location.value.cell,
+    })
+  })
+
+  it('omits location_cell when the creator is not using their position', async () => {
+    const server = makeFakeServer(() => ({ status: 201, data: { id: 'c2', name: 'Online only' } }))
+    const useCases = wireUseCases({
+      secureStorage: makeMemoryStorage({ access_token: 't' }),
+      preferenceStorage: makeMemoryStorage(),
+      httpAdapter: server.adapter,
+    })
+    await useCases.createCommunity({ name: 'Online only', description: '', radiusKm: 5, allowPseudonyms: false })
+    expect(JSON.parse(server.seen[0]!.data as string)).toEqual({
+      name: 'Online only',
+      description: '',
+      radius_km: 5,
+      allow_pseudonyms: false,
+    })
+  })
 })
