@@ -1,4 +1,4 @@
-import { useFocusEffect, useRouter } from 'expo-router'
+import { Link, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useRef } from 'react'
 import { ActivityIndicator, FlatList, Linking, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 
@@ -9,6 +9,7 @@ import { Avatar } from '../../src/presentation/components/Avatar'
 import { Fab } from '../../src/presentation/components/Fab'
 import { FeedPostCard } from '../../src/presentation/components/FeedPostCard'
 import { GeoRing, GeoSun, GeoWedge } from '../../src/presentation/components/Geo'
+import { LinkButton } from '../../src/presentation/components/LinkButton'
 import { LocationOff } from '../../src/presentation/components/LocationOff'
 import { MonoLabel } from '../../src/presentation/components/MonoLabel'
 import { NewPostsBanner } from '../../src/presentation/components/NewPostsBanner'
@@ -20,8 +21,15 @@ import { useFeed, usesPostalCode } from '../../src/presentation/use-feed'
 export default function Feed() {
   const router = useRouter()
   const { user, logout } = useAuth()
-  const { state, enableLocation, setPostalCode, changePlace, backToFeed, refresh, loadMore, showPending } = useFeed()
+  // A stranger reads the feed of whatever place the address names, so a place can be shared.
+  const { code } = useLocalSearchParams<{ code?: string }>()
+  const { state, enableLocation, setPostalCode, changePlace, backToFeed, refresh, loadMore, showPending } = useFeed({
+    requestedCode: code ?? null,
+    onPlaced: (next) => router.setParams({ code: next }),
+  })
   const list = useRef<FlatList>(null)
+  /** Reading is public; everything that writes needs an account. */
+  const signedIn = !!user
 
   // Coming back from compose: a post made without location never arrives on the stream.
   const focused = useRef(false)
@@ -71,14 +79,24 @@ export default function Feed() {
               </MonoLabel>
             </Pressable>
           ) : null}
-          <Pressable accessibilityRole="button" accessibilityLabel="Communities" onPress={() => router.push('/communities')} hitSlop={8} style={styles.navLink}>
-            <MonoLabel size={12} tracking={0.12} color={colors.paper}>
-              Communities
-            </MonoLabel>
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => void logout()} hitSlop={8}>
-            <Avatar name={user?.name ?? '?'} seed={user?.id} size={30} />
-          </Pressable>
+          {signedIn ? (
+            <>
+              <Pressable accessibilityRole="button" accessibilityLabel="Communities" onPress={() => router.push('/communities')} hitSlop={8} style={styles.navLink}>
+                <MonoLabel size={12} tracking={0.12} color={colors.paper}>
+                  Communities
+                </MonoLabel>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => void logout()} hitSlop={8}>
+                <Avatar name={user?.name ?? '?'} seed={user?.id} size={30} />
+              </Pressable>
+            </>
+          ) : (
+            <Link href="/login" accessibilityRole="link" style={styles.navLink}>
+              <MonoLabel size={12} tracking={0.12} color={colors.paper}>
+                Sign in
+              </MonoLabel>
+            </Link>
+          )}
         </View>
       }
     />
@@ -125,7 +143,10 @@ export default function Feed() {
             ) : state.failed ? (
               <Alert message="Could not load the feed. Pull down to try again." />
             ) : (
-              <Text style={styles.empty}>Nothing nearby yet. Be the first to post.</Text>
+              <View style={styles.emptyBlock}>
+                <Text style={styles.empty}>{signedIn ? 'Nothing nearby yet. Be the first to post.' : 'Nothing nearby yet.'}</Text>
+                {signedIn ? null : <LinkButton href="/login" label="Sign in" />}
+              </View>
             )
           }
           ListFooterComponent={state.loadingMore ? <ActivityIndicator color={colors.red} style={styles.status} /> : undefined}
@@ -139,7 +160,7 @@ export default function Feed() {
             }}
           />
         ) : null}
-        <Fab label="New post" onPress={() => router.push('/compose')} />
+        {signedIn ? <Fab label="New post" onPress={() => router.push('/compose')} /> : null}
       </View>
     </View>
   )
@@ -152,5 +173,6 @@ const styles = StyleSheet.create({
   navLink: { minHeight: 44, justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: colors.red },
   feed: { padding: 16, paddingBottom: 110, flexGrow: 1 },
   status: { marginTop: 32 },
-  empty: { marginTop: 32, textAlign: 'center', fontFamily: fonts.body, fontSize: 17, color: colors.ink2 },
+  emptyBlock: { marginTop: 32, alignItems: 'center', gap: 10 },
+  empty: { textAlign: 'center', fontFamily: fonts.body, fontSize: 17, color: colors.ink2 },
 })

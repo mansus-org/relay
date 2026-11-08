@@ -48,9 +48,23 @@ const initial: FeedState = {
   checking: false,
 }
 
+export type FeedOptions = {
+  /** A place named in the URL (`/?code=15007`). It wins over the stored one and is read once. */
+  readonly requestedCode?: string | null
+  /** Reports the code the feed opened, so the address bar can follow the place. */
+  readonly onPlaced?: (code: string) => void
+}
+
 /** Location → H3 cell → paginated feed plus the live stream of new posts for that cell. */
-export function useFeed() {
+export function useFeed(options: FeedOptions = {}) {
   const { resolveLocation, resolvePostalCode, readPostalCode, loadFeed, subscribeToPosts } = useUseCases()
+  // The address is read once, and the callback is kept in a ref: a caller that re-renders with a
+  // fresh function or a param that has since gone away must not drag the feed back to the URL.
+  const [requestedCode] = useState(() => options.requestedCode ?? null)
+  const placed = useRef(options.onPlaced)
+  useEffect(() => {
+    placed.current = options.onPlaced
+  }, [options.onPlaced])
   const [state, setState] = useState<FeedState>(initial)
   const cursor = useRef<string | null>(null)
   const generation = useRef(0)
@@ -89,8 +103,9 @@ export function useFeed() {
         }))
         return
       }
-      code.current = area.value.postalCode
-      const { cell, placeName } = area.value
+      const { cell, placeName, postalCode } = area.value
+      code.current = postalCode
+      placed.current?.(postalCode)
       setState((s) =>
         s.cell === cell
           ? { ...s, phase: 'ready', checking: false, placeName }
@@ -119,10 +134,10 @@ export function useFeed() {
 
   /** Reopens on the saved postal code, or asks for one when the user never chose a place. */
   const startFromPostalCode = useCallback(async () => {
-    const saved = await readPostalCode()
+    const saved = requestedCode ?? (await readPostalCode())
     if (!saved) return patch({ phase: 'ask' })
     await applyPostalCode(saved)
-  }, [readPostalCode, applyPostalCode, patch])
+  }, [readPostalCode, applyPostalCode, patch, requestedCode])
 
   useEffect(() => {
     // start() only sets state after the first await, so this is not a synchronous update.
