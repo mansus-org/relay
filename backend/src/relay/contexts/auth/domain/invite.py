@@ -3,7 +3,7 @@
 import secrets
 from datetime import datetime
 
-from relay.contexts.auth.domain.errors import InviteNotUsableError
+from relay.contexts.auth.domain.errors import InviteNotUsableError, InviteSpentError
 from relay.contexts.auth.domain.models import RelationalEntity
 from relay.shared.domain import ValueObject
 
@@ -62,7 +62,7 @@ class Invite(RelationalEntity):
     def redeem(self, *, user_id: int, at: datetime) -> None:
         """Spend it. Raises when it is not open, so a second person cannot ride in on it."""
         if not self.is_open:
-            raise InviteNotUsableError(f"That invite is {self.state}.")
+            raise InviteSpentError(f"That invite is {self.state}.")
         self.used_by_id = user_id
         self.used_at = at
 

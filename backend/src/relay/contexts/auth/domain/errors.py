@@ -31,5 +31,13 @@ class InviteNotUsableError(AuthError):
     """An invite token cannot be registered with: unknown, already spent, or revoked."""
 
 
+class InviteSpentError(InviteNotUsableError):
+    """The invite is real but closed: someone registered with it, or it was pulled back.
+
+    Kept apart from an unknown token because the person holding the link deserves to know
+    the difference, and because the api answers them with different status codes.
+    """
+
+
 class InvalidTokenError(AuthError):
     """A token Relay will not accept: wrong signature, wrong kind, expired, or spent."""

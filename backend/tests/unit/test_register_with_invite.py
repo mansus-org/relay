@@ -6,6 +6,7 @@ from relay.contexts.auth.application import IssueTokens, RegisterWithInvite
 from relay.contexts.auth.domain.errors import (
     InvalidPasswordError,
     InviteNotUsableError,
+    InviteSpentError,
     UsernameTakenError,
 )
 from relay.contexts.auth.domain.invite import Invite
@@ -90,7 +91,7 @@ async def test_a_spent_invite_does_not_open_a_second_account() -> None:
     invite = await wiring.invite()
     await wiring.as_("ada", "hunter2222", invite)
 
-    with pytest.raises(InviteNotUsableError):
+    with pytest.raises(InviteSpentError):
         await wiring.as_("grace", "hunter3333", invite)
 
 
@@ -110,7 +111,7 @@ async def test_a_revoked_invite_does_not_open_anything() -> None:
     invite.revoke(at=FixedClock().now())
     await wiring.uow.invites.add(invite)
 
-    with pytest.raises(InviteNotUsableError):
+    with pytest.raises(InviteSpentError):
         await wiring.as_("ada", "hunter2222", invite)
 
 

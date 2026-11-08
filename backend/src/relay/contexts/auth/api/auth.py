@@ -20,6 +20,7 @@ from relay.contexts.auth.domain.errors import (
     InvalidTokenError,
     InvalidUsernameError,
     InviteNotUsableError,
+    InviteSpentError,
     UsernameTakenError,
 )
 from relay.contexts.auth.domain.tokens import ACCESS_LIFETIME, TokenPair
@@ -119,7 +120,8 @@ def get_refresh_access_token(
     ),
     responses={
         400: {"description": "The username, password or display name breaks a rule"},
-        404: {"description": "No invite matches that token, or it is used or revoked"},
+        403: {"description": "That invite exists and is shut: already used, or pulled back"},
+        404: {"description": "No invite matches that token"},
         409: {"description": "Someone already has that username"},
     },
 )
@@ -134,6 +136,8 @@ async def register(
             password=body.password,
             display_name=body.display_name,
         )
+    except InviteSpentError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except InviteNotUsableError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except UsernameTakenError as error:

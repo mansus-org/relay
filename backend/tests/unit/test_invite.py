@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from relay.contexts.auth.domain.errors import InviteNotUsableError
+from relay.contexts.auth.domain.errors import InviteNotUsableError, InviteSpentError
 from relay.contexts.auth.domain.invite import Invite, InviteToken
 
 LATER = datetime(2026, 1, 2, tzinfo=UTC)
@@ -45,7 +45,7 @@ def test_an_invite_only_opens_once() -> None:
     invite = Invite.issue()
     invite.redeem(user_id=7, at=LATER)
 
-    with pytest.raises(InviteNotUsableError):
+    with pytest.raises(InviteSpentError):
         invite.redeem(user_id=8, at=LATER.replace(day=3))
 
 
@@ -56,5 +56,5 @@ def test_an_invite_pulled_before_it_was_used_never_opens() -> None:
 
     assert not invite.is_open
     assert invite.revoked_at == LATER
-    with pytest.raises(InviteNotUsableError):
+    with pytest.raises(InviteSpentError):
         invite.redeem(user_id=7, at=LATER + timedelta(days=1))

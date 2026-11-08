@@ -1,5 +1,7 @@
 """The auth unit of work: one session, three repositories, one commit."""
 
+from typing import Self
+
 from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
 from relay.contexts.auth.domain.repository import (
     InviteRepository,
@@ -15,16 +17,18 @@ from relay.shared.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 
 
 class SqlAlchemyAuthUnitOfWork(SqlAlchemyUnitOfWork, AuthUnitOfWork):
-    """Builds the repositories on the session it is given, so they all share one transaction."""
+    """The repositories are built on the session this opens, so they share one transaction.
 
-    @property
-    def users(self) -> UserRepository:
-        return SqlAlchemyUserRepository(self.session)
+    They cannot exist before `async with`: there is no session before it.
+    """
 
-    @property
-    def invites(self) -> InviteRepository:
-        return SqlAlchemyInviteRepository(self.session)
+    users: UserRepository
+    invites: InviteRepository
+    refresh_tokens: RefreshTokenRepository
 
-    @property
-    def refresh_tokens(self) -> RefreshTokenRepository:
-        return SqlAlchemyRefreshTokenRepository(self.session)
+    async def __aenter__(self) -> Self:
+        await super().__aenter__()
+        self.users = SqlAlchemyUserRepository(self.session)
+        self.invites = SqlAlchemyInviteRepository(self.session)
+        self.refresh_tokens = SqlAlchemyRefreshTokenRepository(self.session)
+        return self

@@ -84,7 +84,7 @@ async def test_one_invite_opens_exactly_one_account(app: FastAPI, http: AsyncCli
         ),
     )
 
-    assert second.status_code == 404
+    assert second.status_code == 403
     assert second.json()["detail"] == "That invite is used."
 
 

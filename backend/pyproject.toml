@@ -105,3 +105,25 @@ name = "Location application stays free of FastAPI, SQLAlchemy and H3"
 type = "forbidden"
 source_modules = ["relay.contexts.location.application"]
 forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "h3"]
+[[tool.importlinter.contracts]]
+name = "Auth layers point inward: api -> application -> domain <- infrastructure"
+type = "layers"
+layers = [
+    "relay.contexts.auth.api",
+    "relay.contexts.auth.infrastructure",
+    "relay.contexts.auth.application",
+    "relay.contexts.auth.domain",
+]
+exhaustive = false
+
+[[tool.importlinter.contracts]]
+name = "Auth domain stays pure: no FastAPI, SQLAlchemy, bcrypt or JWT library"
+type = "forbidden"
+source_modules = ["relay.contexts.auth.domain"]
+forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "bcrypt", "jose"]
+
+[[tool.importlinter.contracts]]
+name = "Auth application stays free of FastAPI, SQLAlchemy, bcrypt and JWT library"
+type = "forbidden"
+source_modules = ["relay.contexts.auth.application"]
+forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "bcrypt", "jose"]

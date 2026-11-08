@@ -4,7 +4,11 @@ from dataclasses import dataclass
 
 from relay.contexts.auth.application.issue_tokens import IssueTokens
 from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
-from relay.contexts.auth.domain.errors import InviteNotUsableError, UsernameTakenError
+from relay.contexts.auth.domain.errors import (
+    InviteNotUsableError,
+    InviteSpentError,
+    UsernameTakenError,
+)
 from relay.contexts.auth.domain.invite import InviteToken
 from relay.contexts.auth.domain.ports import PasswordHasher
 from relay.contexts.auth.domain.tokens import TokenPair
@@ -43,7 +47,7 @@ class RegisterWithInvite:
             if invite is None:
                 raise InviteNotUsableError("No invite matches that token.")
             if not invite.is_open:
-                raise InviteNotUsableError(f"That invite is {invite.state}.")
+                raise InviteSpentError(f"That invite is {invite.state}.")
 
             if await self._uow.users.get_by_username(Username.parse(username)) is not None:
                 raise UsernameTakenError("Someone already has that username.")
