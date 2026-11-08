@@ -4,6 +4,8 @@ from alembic import context
 from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+# Every table has to be imported before it shows up in the metadata Alembic compares against.
+from relay.contexts.auth.infrastructure import models as _auth_models  # noqa: F401
 from relay.shared.config import Settings
 from relay.shared.infrastructure.database import Base
 

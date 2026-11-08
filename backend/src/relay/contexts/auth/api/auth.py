@@ -1,0 +1,196 @@
+"""HTTP edge of the auth context: get in, get back in, and find out who you are."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field, field_validator
+
+from relay.container import Container
+from relay.contexts.auth.api.dependencies import CurrentUser
+from relay.contexts.auth.application import (
+    Login,
+    RefreshAccessToken,
+    RegisterWithInvite,
+    RenewedSession,
+)
+from relay.contexts.auth.domain.errors import (
+    InvalidCredentialsError,
+    InvalidDisplayNameError,
+    InvalidPasswordError,
+    InvalidTokenError,
+    InvalidUsernameError,
+    InviteNotUsableError,
+    UsernameTakenError,
+)
+from relay.contexts.auth.domain.tokens import ACCESS_LIFETIME, TokenPair
+from relay.contexts.auth.domain.user import User
+from relay.shared.api.dependencies import get_container
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+class RegisterRequest(BaseModel):
+    """A new account, paid for with an invite."""
+
+    invite_token: str = Field(min_length=1, description="The token from the invite link.")
+    username: str = Field(min_length=1, description="Lowercase, 3-20 of a-z 0-9 . _ -")
+    password: str = Field(min_length=1, description="At least 8 characters.")
+    display_name: str = Field(min_length=1, description="What to call you, up to 60 characters.")
+
+    @field_validator("invite_token", "username", "display_name")
+    @classmethod
+    def _no_stray_space(cls, value: str) -> str:
+        """Nobody ever meant a space at either end of one of these."""
+        return value.strip()
+
+
+class LoginRequest(BaseModel):
+    """An account and the password for it. Both are checked together, or not at all."""
+
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class RefreshRequest(BaseModel):
+    """The refresh token from the last time round."""
+
+    refresh_token: str = Field(min_length=1)
+
+
+class TokenResponse(BaseModel):
+    """Both halves of a session. Send the access token with every call; keep the other."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"  # noqa: S105 - an OAuth field, not a secret
+    expires_in_seconds: int
+
+    @classmethod
+    def from_domain(cls, tokens: TokenPair | RenewedSession) -> "TokenResponse":
+        return cls(
+            access_token=tokens.access_token,
+            refresh_token=str(tokens.refresh_token),
+            expires_in_seconds=int(ACCESS_LIFETIME.total_seconds()),
+        )
+
+
+class UserResponse(BaseModel):
+    """Who the access token belongs to."""
+
+    id: int
+    username: str
+    display_name: str
+    is_admin: bool
+
+    @classmethod
+    def from_domain(cls, user: User) -> "UserResponse":
+        return cls(
+            id=user.require_id(),
+            username=str(user.username),
+            display_name=str(user.display_name),
+            is_admin=user.is_admin,
+        )
+
+
+def get_register_with_invite(
+    container: Annotated[Container, Depends(get_container)],
+) -> RegisterWithInvite:
+    return container.get_register_with_invite()
+
+
+def get_login(container: Annotated[Container, Depends(get_container)]) -> Login:
+    return container.get_login()
+
+
+def get_refresh_access_token(
+    container: Annotated[Container, Depends(get_container)],
+) -> RefreshAccessToken:
+    return container.get_refresh_access_token()
+
+
+@router.post(
+    "/register",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Open an account with an invite",
+    description=(
+        "Relay is invite-only: without a live invite there is no way in. The invite is "
+        "spent here, so it cannot be used twice, and you get a session straight away."
+    ),
+    responses={
+        400: {"description": "The username, password or display name breaks a rule"},
+        404: {"description": "No invite matches that token, or it is used or revoked"},
+        409: {"description": "Someone already has that username"},
+    },
+)
+async def register(
+    body: RegisterRequest,
+    use_case: Annotated[RegisterWithInvite, Depends(get_register_with_invite)],
+) -> TokenResponse:
+    try:
+        registration = await use_case.execute(
+            invite_token=body.invite_token,
+            username=body.username,
+            password=body.password,
+            display_name=body.display_name,
+        )
+    except InviteNotUsableError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except UsernameTakenError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except (InvalidUsernameError, InvalidPasswordError, InvalidDisplayNameError) as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    return TokenResponse.from_domain(registration.tokens)
+
+
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Exchange a username and password for a session",
+    description=(
+        "Wrong username and wrong password get the same answer, so this cannot be used "
+        "to find out which accounts exist."
+    ),
+    responses={401: {"description": "No such account, or the password does not match"}},
+)
+async def login(
+    body: LoginRequest,
+    use_case: Annotated[Login, Depends(get_login)],
+) -> TokenResponse:
+    try:
+        tokens = await use_case.execute(username=body.username, password=body.password)
+    except InvalidCredentialsError as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+    return TokenResponse.from_domain(tokens)
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Trade in a refresh token for a new pair",
+    description=(
+        "The old refresh token stops working here: each one is good once, so a stolen "
+        "one is caught the moment its owner uses it."
+    ),
+    responses={401: {"description": "Never issued, already used, revoked, or out of date"}},
+)
+async def refresh(
+    body: RefreshRequest,
+    use_case: Annotated[RefreshAccessToken, Depends(get_refresh_access_token)],
+) -> TokenResponse:
+    try:
+        tokens = await use_case.execute(body.refresh_token)
+    except InvalidTokenError as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+    return TokenResponse.from_domain(tokens)
+
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Who the access token belongs to",
+    description="The one place a client can check that its token still works.",
+    responses={401: {"description": "No bearer token, or not one we signed"}},
+)
+async def me(user: CurrentUser) -> UserResponse:
+    return UserResponse.from_domain(user)

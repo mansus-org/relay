@@ -9,6 +9,10 @@ _DRIVER_PREFIXES = {
     "postgres://": "postgresql+asyncpg://",
 }
 
+# Signs access tokens when nothing is configured: fine on a laptop and in tests, and
+# main.py shouts at startup until SECRET_KEY is set to something nobody can guess.
+DEV_SECRET_KEY = "insecure-dev-secret-change-me"  # noqa: S105 - it is not meant to be a secret
+
 
 class Settings(BaseSettings):
     """Process configuration. Built once in main.py and passed to whoever needs it."""
@@ -16,6 +20,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", frozen=True)
 
     database_url: str = Field(default="sqlite+aiosqlite:///./relay.db")
+    secret_key: str = Field(default=DEV_SECRET_KEY, description="Signs access tokens (SECRET_KEY)")
+    admin_username: str | None = Field(
+        default=None,
+        description="Create this account if the database has nobody yet (ADMIN_USERNAME)",
+    )
+    admin_password: str | None = Field(
+        default=None,
+        description="Password for ADMIN_USERNAME, at least 8 characters (ADMIN_PASSWORD)",
+    )
     version: str = Field(default="dev")
     log_level: str = Field(default="INFO")
     web_dist_dir: Path | None = Field(default=None, description="Exported web build to serve at /")

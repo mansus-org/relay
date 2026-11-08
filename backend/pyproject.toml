@@ -14,7 +14,7 @@ dependencies = [
     "aiosqlite",
     "asyncpg",
     "python-jose",
-    "passlib",
+    "bcrypt",
     "h3",
 ]
 
@@ -44,8 +44,10 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "ASYNC", "S", "N", "RUF"]
 
+# Tests are full of obvious fake secrets ("hunter2222") and assert on them: that is
+# the job of a test fixture, not a leaked credential.
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "S105", "S106", "S107"]
 
 [tool.ty.src]
 include = ["src", "tests"]
