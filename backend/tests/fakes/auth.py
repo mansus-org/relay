@@ -53,9 +53,13 @@ class InMemoryUserRepository(UserRepository):
 class InMemoryInviteRepository(InviteRepository):
     """Invites, found by the token from the link."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, somebody_else_won: bool = False) -> None:
         self._items: dict[int, Invite] = {}
         self._sequence = _Sequence()
+        # Set this to be the other writer who got there first: every spend is refused even
+        # though the copy in here still looks open, which is what the real UPDATE does when
+        # its WHERE matches no row.
+        self.somebody_else_won = somebody_else_won
 
     async def get(self, id: int) -> Invite | None:
         return self._items.get(id)
@@ -70,7 +74,7 @@ class InMemoryInviteRepository(InviteRepository):
 
     async def redeem(self, invite: Invite, *, user_id: int, at: datetime) -> bool:
         """Spend it, and say False when somebody already did."""
-        if not invite.is_open:
+        if self.somebody_else_won or not invite.is_open:
             return False
         invite.redeem(user_id=user_id, at=at)
         return True
@@ -79,9 +83,12 @@ class InMemoryInviteRepository(InviteRepository):
 class InMemoryRefreshTokenRepository(RefreshTokenRepository):
     """Sessions, found by the fingerprint of the token."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, somebody_else_won: bool = False) -> None:
         self._items: dict[int, RefreshToken] = {}
         self._sequence = _Sequence()
+        # Same as the invites: every end-of-session is refused, as if another writer had
+        # already put a revoked_at on the row.
+        self.somebody_else_won = somebody_else_won
 
     async def get(self, id: int) -> RefreshToken | None:
         return self._items.get(id)
@@ -98,20 +105,24 @@ class InMemoryRefreshTokenRepository(RefreshTokenRepository):
 
     async def revoke(self, token: RefreshToken, *, at: datetime) -> bool:
         """End it, and say False when it was already over."""
-        if not token.is_active:
+        if self.somebody_else_won or not token.is_active:
             return False
         token.revoke(at=at)
         return True
 
 
 class FakeAuthUnitOfWork(FakeUnitOfWork, AuthUnitOfWork):
-    """The three repositories sharing one fake transaction."""
+    """The three repositories sharing one fake transaction.
 
-    def __init__(self) -> None:
+    `somebody_else_won` is the race switch: with it set, every spend and every
+    end-of-session comes back refused, exactly as it does for the request that loses.
+    """
+
+    def __init__(self, *, somebody_else_won: bool = False) -> None:
         super().__init__()
         self.users = InMemoryUserRepository()
-        self.invites = InMemoryInviteRepository()
-        self.refresh_tokens = InMemoryRefreshTokenRepository()
+        self.invites = InMemoryInviteRepository(somebody_else_won=somebody_else_won)
+        self.refresh_tokens = InMemoryRefreshTokenRepository(somebody_else_won=somebody_else_won)
 
 
 class PlainPasswordHasher(PasswordHasher):

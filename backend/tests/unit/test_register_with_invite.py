@@ -21,8 +21,8 @@ from tests.fakes.clock import FixedClock
 class Wiring:
     """The service on fakes, with the broker and the data it can see in reach."""
 
-    def __init__(self) -> None:
-        self.uow = FakeAuthUnitOfWork()
+    def __init__(self, *, somebody_else_wins: bool = False) -> None:
+        self.uow = FakeAuthUnitOfWork(somebody_else_won=somebody_else_wins)
         self.broker = CountingTokenBroker()
         self.clock = FixedClock()
         self.register = RegisterWithInvite(
@@ -93,6 +93,19 @@ async def test_a_spent_invite_does_not_open_a_second_account() -> None:
 
     with pytest.raises(InviteSpentError):
         await wiring.as_("grace", "hunter3333", invite)
+
+
+async def test_the_one_who_arrives_second_is_turned_away_without_a_commit() -> None:
+    """Two requests, one invite. The loser is refused on the write, not on what it read."""
+    wiring = Wiring(somebody_else_wins=True)
+    invite = await wiring.invite()
+
+    with pytest.raises(InviteSpentError):
+        await wiring.as_("ada", "hunter2222", invite)
+
+    assert not wiring.uow.committed
+    assert wiring.uow.rolled_back
+    assert wiring.broker.issued == []
 
 
 async def test_a_token_that_is_not_an_invite_is_not_usable() -> None:

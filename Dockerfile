@@ -3,8 +3,11 @@
 # Relay: the FastAPI backend serving the Expo web build, one image, one port.
 #
 #   docker build -t relay .
-#   docker run -d -p 8000:8000 -v relay-data:/data relay
+#   docker run -d -p 8000:8000 -v relay-data:/data -e SECRET_KEY="$(openssl rand -hex 32)" relay
 #
+# SECRET_KEY signs every session and the API will not start without one: the
+# default is published in this repository. On a laptop,
+# -e ALLOW_INSECURE_SECRET_KEY=1 runs on the default anyway.
 # http://localhost:8000/ is the web app, /api/* the API (/api/health for probes).
 # Runs as uid 100 / gid 101, the old Go image's user, so the existing data disk
 # stays writable. Migrations run on start. /data holds the SQLite database; set

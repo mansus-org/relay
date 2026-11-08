@@ -99,6 +99,19 @@ async def test_a_login_against_nobody_still_pays_for_a_hash() -> None:
     assert hasher.checked == [None]
 
 
+async def test_a_password_too_long_for_bcrypt_is_answered_as_wrong(wiring: Wiring) -> None:
+    """bcrypt refuses to read this far. The answer is still the one wrong answer there is."""
+    await wiring.an_account()
+    too_long = "hunter2222" * 20
+
+    with pytest.raises(InvalidCredentialsError):
+        await wiring.login.execute(username="ada", password=too_long)
+    with pytest.raises(InvalidCredentialsError):
+        await wiring.login.execute(username="nobody-here", password=too_long)
+
+    assert wiring.broker.issued == []
+
+
 async def test_a_wrong_password_gives_the_same_answer_as_a_wrong_name(wiring: Wiring) -> None:
     await wiring.an_account()
 

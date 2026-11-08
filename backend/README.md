@@ -37,6 +37,7 @@ Run everything from `backend/`:
 ```sh
 uv sync                                  # install Python + dependencies
 uv run alembic upgrade head              # create/upgrade the SQLite database
+export SECRET_KEY="$(openssl rand -hex 32)"  # signs every session; see Configuration below
 uv run uvicorn relay.main:app --reload   # serve on http://localhost:8000
 curl localhost:8000/api/health           # {"status":"ok","version":"dev"} (/health works too)
 curl localhost:8000/api/location/postal-code/15001
@@ -44,13 +45,17 @@ curl localhost:8000/api/location/postal-code/15001
 uv run pytest                            # unit, integration, API tests
 ```
 
+Without `SECRET_KEY` the API says so and refuses to start, because the default
+key is published in this repository and anybody could forge a session with it.
+`ALLOW_INSECURE_SECRET_KEY=1` runs on that key anyway, on a laptop.
+
 ## Accounts, and how the first one happens
 
 An empty database has nobody in it, and there is no open sign-up. Two ways in:
 
 ```sh
 # 1. The first account, seeded on startup when the database is still empty.
-#    Both must be set, or nothing is created. Set SECRET_KEY too, before anyone else connects.
+#    Both must be set, or nothing is created.
 ADMIN_USERNAME=you ADMIN_PASSWORD='at-least-8-characters' uv run uvicorn relay.main:app --reload
 curl -X POST localhost:8000/api/auth/login \
   -H 'content-type: application/json' \
@@ -68,14 +73,18 @@ The access token is a signed JWT, good for 15 minutes. The refresh token is a
 random string kept in the database as a fingerprint, good for 30 days and for
 one use: `/auth/refresh` hands back a new pair and spends the old one, so a
 stolen token is caught the moment its owner uses it. `SECRET_KEY` signs the
-access tokens; while it is still the development default, startup logs a warning.
+access tokens, and it is not optional any more: while it is still the
+development default the API refuses to start, because that key is published in
+this repository and anyone could forge a session. On a laptop, say so out loud
+with `ALLOW_INSECURE_SECRET_KEY=1`.
 
 ## Configuration
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `DATABASE_URL` | `sqlite+aiosqlite:///./relay.db` | SQLAlchemy URL. `postgresql+asyncpg://user:pass@host/db` switches to Postgres, no code change |
-| `SECRET_KEY` | `insecure-dev-secret-change-me` | Signs access tokens. Set it to something long and random before anyone connects; startup warns while it is the default |
+| `SECRET_KEY` | `insecure-dev-secret-change-me` | Signs access tokens. Set it to something long and random (`openssl rand -hex 32`) before anyone connects; the API will not start on the default |
+| `ALLOW_INSECURE_SECRET_KEY` | `0` | Start anyway on the development key, and log a warning about it. A laptop only, never a deployment |
 | `ADMIN_USERNAME` | unset | Create this account on startup if the database has no users yet. Needs `ADMIN_PASSWORD` |
 | `ADMIN_PASSWORD` | unset | Password for `ADMIN_USERNAME`, at least 8 characters |
 | `VERSION` | `dev` | Reported by `/health` |
@@ -91,7 +100,8 @@ and one port serve both (this is what runs at relay.mansus.org).
 ```sh
 # from the repo root
 docker build -t relay .
-docker run --rm -p 8000:8000 -v relay-data:/data relay
+docker run --rm -p 8000:8000 -v relay-data:/data \
+  -e SECRET_KEY="$(openssl rand -hex 32)" relay
 # http://localhost:8000/        web app (deep links like /login work)
 # http://localhost:8000/api/health
 ```

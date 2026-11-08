@@ -78,7 +78,7 @@ class DisplayName(ValueObject):
             raise InvalidDisplayNameError(
                 f"Display names are at most {MAX_DISPLAY_NAME_CHARS} characters."
             )
-        if any(char.isspace() and char != " " for char in value):
+        if "\n" in value or "\r" in value:
             raise InvalidDisplayNameError("A display name is one line.")
         return cls(value=value)
 

@@ -25,6 +25,17 @@ from relay.contexts.auth.infrastructure.models import (
 )
 
 
+def _somebody_else_got_there_first(error: IntegrityError) -> bool:
+    """Whether the database objected to this username being taken.
+
+    SQLite names the column and Postgres names the constraint, so this listens for the
+    objection and the column rather than one exact sentence. Anything else the database
+    objected to is not ours to rename.
+    """
+    reason = str(error.orig).lower()
+    return "unique" in reason and "username" in reason
+
+
 def rows_changed(result: Result[Any]) -> int:
     """How many rows an UPDATE moved.
 
@@ -54,7 +65,10 @@ class SqlAlchemyUserRepository(UserRepository):
             await self._session.flush()
         except IntegrityError as error:
             # Somebody took this handle between our look and our write. The unique index is
-            # the only thing here that can promise who won, so it is what we listen to.
+            # the only thing here that can promise who won, so it is what we listen to -
+            # and anything else the database objected to is still passed on as it was.
+            if not _somebody_else_got_there_first(error):
+                raise
             raise UsernameTakenError("Someone already has that username.") from error
         entity.id = row.id
 
@@ -84,6 +98,8 @@ class SqlAlchemyInviteRepository(InviteRepository):
     async def redeem(self, invite: Invite, *, user_id: int, at: datetime) -> bool:
         # One statement, with "still open" in its WHERE: the database decides which of two
         # people racing the same link wins, and the loser is the one that changes no row.
+        # The invite this session already loaded is left as it was read; nothing looks at it
+        # again in this transaction, and keeping it in step would cost a second statement.
         result = await self._session.execute(
             update(InviteRow)
             .where(
@@ -126,7 +142,8 @@ class SqlAlchemyRefreshTokenRepository(RefreshTokenRepository):
 
     async def revoke(self, token: RefreshToken, *, at: datetime) -> bool:
         # Same trick as spending an invite: only a session that is still running is touched,
-        # so whoever is replaying a spent ticket finds nothing to spend and gets False.
+        # so whoever is replaying a spent ticket finds nothing to spend and gets False. The
+        # row loaded above is left stale on purpose, same as there.
         result = await self._session.execute(
             update(RefreshTokenRow)
             .where(

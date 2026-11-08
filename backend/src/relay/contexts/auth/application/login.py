@@ -5,7 +5,7 @@ from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
 from relay.contexts.auth.domain.errors import InvalidCredentialsError, InvalidUsernameError
 from relay.contexts.auth.domain.ports import PasswordHasher
 from relay.contexts.auth.domain.tokens import TokenPair
-from relay.contexts.auth.domain.user import Username
+from relay.contexts.auth.domain.user import MAX_PASSWORD_BYTES, Username
 
 
 class Login:
@@ -24,6 +24,10 @@ class Login:
                 # A handle that is not a handle still only means: we cannot find you. Anything
                 # sharper would turn the login form into a list of who has a Relay account.
                 raise InvalidCredentialsError("Username or password is wrong.") from None
+            if len(password.encode()) > MAX_PASSWORD_BYTES:
+                # bcrypt reads this little and would rather raise than try. Long is wrong,
+                # said the same way as any other wrong, and before anyone is looked up.
+                raise InvalidCredentialsError("Username or password is wrong.")
             user = await self._uow.users.get_by_username(handle)
             # A missing account and a wrong password have to look identical from outside,
             # in what they say and in how long they take. So the hash is asked either way:

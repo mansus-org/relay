@@ -37,6 +37,9 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
         sa.UniqueConstraint("username", name="uq_users_username"),
+        # Lowercase is the domain's rule, but the index that promises one handle, one account
+        # only sees what it is given. This is the same rule said where nothing can skip it.
+        sa.CheckConstraint("username = lower(username)", name="username_is_lowercase"),
     )
 
     op.create_table(

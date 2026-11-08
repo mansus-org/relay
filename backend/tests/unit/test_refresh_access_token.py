@@ -16,8 +16,10 @@ from tests.fakes.clock import FixedClock
 class Wiring:
     """One account with one live session, and the refresh that can spend it."""
 
-    def __init__(self, clock: FixedClock | None = None) -> None:
-        self.uow = FakeAuthUnitOfWork()
+    def __init__(
+        self, *, clock: FixedClock | None = None, somebody_else_wins: bool = False
+    ) -> None:
+        self.uow = FakeAuthUnitOfWork(somebody_else_won=somebody_else_wins)
         self.clock = clock or FixedClock()
         self.broker = CountingTokenBroker()
         self.issuer = IssueTokens(tokens=self.broker, clock=self.clock, uow=self.uow)
@@ -60,6 +62,19 @@ async def test_using_a_ticket_leaves_exactly_one_live_session() -> None:
     fresh = await wiring.uow.refresh_tokens.get_by_token_hash(renewed.refresh_token.fingerprint())
     assert spent is not None and not spent.is_active
     assert fresh is not None and fresh.is_active
+
+
+async def test_the_one_who_arrives_second_with_the_same_ticket_gets_nothing() -> None:
+    """Two requests, one session. The loser is refused on the write and mints no tokens."""
+    wiring = Wiring(somebody_else_wins=True)
+    ticket = await wiring.a_session()
+
+    with pytest.raises(InvalidTokenError):
+        await wiring.refresh.execute(str(ticket))
+
+    assert not wiring.uow.committed
+    assert wiring.uow.rolled_back
+    assert len(wiring.broker.issued) == 1  # the one this test started with, and no second
 
 
 async def test_a_ticket_never_issued_is_refused() -> None:

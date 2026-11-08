@@ -176,6 +176,9 @@ async def test_the_right_password_opens_a_session(app: FastAPI, http: AsyncClien
         ("ada_lovelace", "wrong-password"),
         ("nobody_here", "hunter2222"),
         ("Ada Lovelace", "hunter2222"),
+        # Past what bcrypt agrees to read, and on both the account and the one that is not there.
+        ("ada_lovelace", "hunter2222" * 20),
+        ("nobody_here", "hunter2222" * 20),
     ],
 )
 async def test_every_way_in_that_does_not_work_says_the_same_thing(

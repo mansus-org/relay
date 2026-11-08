@@ -154,7 +154,8 @@ Read once into `Settings` (pydantic-settings) in `main.py`.
 | `WEB_DIST_DIR` | unset | Directory with the exported web build. When set, it is served at `/` with SPA fallback; unset (dev, tests) serves the API only |
 | `LOG_LEVEL` | `INFO` | Logs are one JSON object per line on stdout |
 | `TEST_DATABASE_URL` | unset | Tests only. When set, integration tests use it instead of a temp SQLite file |
-| `SECRET_KEY` | `insecure-dev-secret-change-me` | Signs the access tokens. Set it before anyone connects; startup logs a warning while it is still the default |
+| `SECRET_KEY` | `insecure-dev-secret-change-me` | Signs the access tokens. Set it before anyone connects (`openssl rand -hex 32`): the default is published in this repository, so the API refuses to start while it is still in place |
+| `ALLOW_INSECURE_SECRET_KEY` | `0` | Start on the development key anyway, and log a warning. For a laptop, never a deployment |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | unset | Bootstrap: create this account on startup when the database has no users yet. Both must be set; the password is at least 8 characters. Unset means a fresh database stays invite-only |
 
 Migrations: `uv run alembic upgrade head` (reads `DATABASE_URL`).
@@ -166,7 +167,8 @@ the "Web app and combined image" section of `backend/README.md`).
 
 ```sh
 docker build -t relay --build-arg VERSION=dev .
-docker run -d --name relay -p 8000:8000 -v relay-data:/data relay
+docker run -d --name relay -p 8000:8000 -v relay-data:/data \
+  -e SECRET_KEY="$(openssl rand -hex 32)" relay
 curl localhost:8000/api/health   # migrations ran on start
 ```
 

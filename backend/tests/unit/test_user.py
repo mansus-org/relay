@@ -62,6 +62,11 @@ def test_a_display_name_is_one_line_and_says_so() -> None:
         DisplayName.parse("Ada\nLovelace")
 
 
+def test_a_display_name_with_a_space_nobody_types_is_still_one_line() -> None:
+    """Only a line break makes it two lines. A pasted non-breaking space is still a name."""
+    assert DisplayName.parse("Ada\u00a0Lovelace").value == "Ada\u00a0Lovelace"
+
+
 def test_a_display_name_is_capped_at_one_line() -> None:
     assert len(DisplayName.parse("x" * MAX_DISPLAY_NAME_CHARS).value) == MAX_DISPLAY_NAME_CHARS
     with pytest.raises(InvalidDisplayNameError):
