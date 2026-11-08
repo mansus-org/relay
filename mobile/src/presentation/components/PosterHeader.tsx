@@ -21,12 +21,18 @@ export function Wordmark() {
 
 type Props = {
   /** Title lines; wrap the key word in <Hot> (red on black). */
-  title: ReactNode
-  meta: string
+  title?: ReactNode
+  meta?: string
   /** Absolutely positioned geometric shapes (decoration, hidden from accessibility). */
   decoration?: ReactNode
   /** Plain-text title for screen readers. */
-  accessibleTitle: string
+  accessibleTitle?: string
+  /** Right end of the logo row, e.g. an avatar. */
+  trailing?: ReactNode
+}
+
+export function Ochre({ children }: { children: string }) {
+  return <Text style={styles.ochre}>{children}</Text>
 }
 
 export function Hot({ children }: { children: string }) {
@@ -34,7 +40,7 @@ export function Hot({ children }: { children: string }) {
 }
 
 /** Black header band with logo row, giant display title, ochre mono meta line and a 6px red stripe. */
-export function PosterHeader({ title, meta, decoration, accessibleTitle }: Props) {
+export function PosterHeader({ title, meta, decoration, accessibleTitle, trailing }: Props) {
   const { top } = useSafeAreaInsets()
   return (
     <View style={[styles.band, { paddingTop: top + 8 }]}>
@@ -45,13 +51,18 @@ export function PosterHeader({ title, meta, decoration, accessibleTitle }: Props
       <View style={styles.top}>
         <Logo />
         <Wordmark />
+        {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
       </View>
-      <Text accessibilityRole="header" accessibilityLabel={accessibleTitle} style={styles.title}>
-        {title}
-      </Text>
-      <MonoLabel size={11} tracking={0.14} color={colors.ochre} style={styles.meta}>
-        {meta}
-      </MonoLabel>
+      {title ? (
+        <Text accessibilityRole="header" accessibilityLabel={accessibleTitle} style={styles.title}>
+          {title}
+        </Text>
+      ) : null}
+      {meta ? (
+        <MonoLabel size={11} tracking={0.14} color={colors.ochre} style={styles.meta}>
+          {meta}
+        </MonoLabel>
+      ) : null}
     </View>
   )
 }
@@ -83,6 +94,8 @@ const styles = StyleSheet.create({
   wordmark: { fontFamily: fonts.display, fontSize: 26, letterSpacing: 0.5, color: colors.paper },
   title: { marginTop: 14, fontFamily: fonts.display, fontSize: 50, lineHeight: 44, color: colors.paper, textTransform: 'uppercase' },
   hot: { color: colors.red },
+  ochre: { color: colors.ochre },
+  trailing: { marginLeft: 'auto' },
   meta: { marginTop: 12 },
 })
 

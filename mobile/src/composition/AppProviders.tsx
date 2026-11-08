@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react'
+import { fetch as streamFetch } from 'expo/fetch'
 import { Platform } from 'react-native'
 
+import type { StreamFetch } from '../infrastructure/stream/fetch-post-stream'
 import { makeAsyncStorage } from '../infrastructure/storage/async-storage'
 import { makeSecureStoreStorage } from '../infrastructure/storage/secure-store'
 import { AuthProvider } from '../presentation/auth'
@@ -14,6 +16,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       secureStorage: makeSecureStoreStorage(),
       preferenceStorage: makeAsyncStorage(),
       fixedApiBaseUrl: Platform.OS === 'web' ? '/api' : undefined,
+      streamFetch: streamFetch as unknown as StreamFetch,
     }),
   )
   return (

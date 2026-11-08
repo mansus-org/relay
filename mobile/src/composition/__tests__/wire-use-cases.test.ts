@@ -1,5 +1,5 @@
 import { makeFakeServer, urlOf, type FakeHandler } from '../../testing/fake-server'
-import { makeMemoryStorage } from '../../testing/fakes'
+import { makeFakeLocationProvider, makeFakePlaceNamer, makeMemoryStorage } from '../../testing/fakes'
 import { wireUseCases } from '../wire-use-cases'
 
 const user = { id: 'u1', name: 'Ada' }
@@ -62,5 +62,28 @@ describe('wired app', () => {
     expect(secureStorage.data.size).toBe(0)
     expect(seen).toHaveLength(1)
     expect(expired).not.toHaveBeenCalled() // launch restore redirects through the auth guard, not the expiry event
+  })
+})
+
+describe('wired feed', () => {
+  const posts = { posts: [{ id: 'p1', author: user, body: 'hi', created_at: '2026-10-29T12:00:00Z' }], next_cursor: null }
+
+  it('resolves the device location to a cell and loads the feed for it', async () => {
+    const { provider } = makeFakeLocationProvider({ granted: true })
+    const server = makeFakeServer(() => ({ status: 200, data: posts }))
+    const useCases = wireUseCases({
+      secureStorage: makeMemoryStorage({ access_token: 't' }),
+      preferenceStorage: makeMemoryStorage(),
+      httpAdapter: server.adapter,
+      locationProvider: provider,
+      placeNamer: makeFakePlaceNamer('Pinheiros').namer,
+    })
+    const location = await useCases.resolveLocation({ prompt: true })
+    if (!location.ok) throw new Error('location failed')
+    expect(location.value.placeName).toBe('Pinheiros')
+    const feed = await useCases.loadFeed({ cell: location.value.cell })
+    expect(feed.ok && feed.value.posts[0]?.id).toBe('p1')
+    expect(server.seen[0]!.params).toEqual({ cell: location.value.cell, radius: 10, cursor: undefined })
+    expect(urlOf(server.seen[0]!)).toBe('https://relay.mansus.org/api/feed')
   })
 })
