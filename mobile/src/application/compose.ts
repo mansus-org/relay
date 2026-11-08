@@ -26,6 +26,6 @@ export const makeCreatePost =
   }
 
 export const makeListJoinedCommunities =
-  ({ communityRepository }: { communityRepository: CommunityRepository }) =>
+  ({ communityRepository }: { communityRepository: Pick<CommunityRepository, 'listJoined'> }) =>
   (): Promise<Result<readonly Community[], ApiError>> =>
     communityRepository.listJoined()

@@ -2,6 +2,7 @@ import type { AuthError } from './auth-error'
 import type { AuthTokens, Credentials, RefreshedSession, Registration, Session } from './session'
 import type { ApiError, Community, FeedPage, FeedQuery, LatLng, LocationStatus, NewPost, Post } from './post'
 import type { Result } from './result'
+import type { CommunityDetails, CommunityError, CommunityFeedQuery, JoinRequest, NewCommunity } from './community'
 
 export type AuthRepository = {
   readonly login: (credentials: Credentials) => Promise<Result<Session, AuthError>>
@@ -45,6 +46,14 @@ export type PostRepository = {
 export type CommunityRepository = {
   /** Communities the signed-in user has joined; empty when there are none. */
   readonly listJoined: () => Promise<Result<readonly Community[], ApiError>>
+  /** Communities whose anchor is near the cell, in the server's order. */
+  readonly listNearby: (cell: string) => Promise<Result<readonly CommunityDetails[], ApiError>>
+  readonly get: (id: string) => Promise<Result<CommunityDetails, CommunityError>>
+  /** 'out-of-range' when the server refuses the cell the user joins from. */
+  readonly join: (request: JoinRequest) => Promise<Result<void, CommunityError>>
+  readonly create: (community: NewCommunity) => Promise<Result<CommunityDetails, ApiError>>
+  /** Posts of a community, newest first; 'forbidden' for non-members. */
+  readonly feed: (query: CommunityFeedQuery) => Promise<Result<FeedPage, CommunityError>>
 }
 
 export type PostStream = {

@@ -1,4 +1,5 @@
 export * from './auth-error'
+export * from './community'
 export * from './ports'
 export * from './post'
 export * from './result'

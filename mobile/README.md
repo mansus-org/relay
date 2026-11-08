@@ -15,10 +15,12 @@ The server URL defaults to `https://relay.mansus.org` (changing it from the UI i
 
 ## Layout
 
-- `app/` file-based routes, kept thin: `_layout.tsx` (`AppProviders`), `(auth)/login`, `(auth)/join`, `(app)/index`
+- `app/` file-based routes, kept thin: `_layout.tsx` (`AppProviders`), `(auth)/login`, `(auth)/join`, `(app)/index`,
+  `(app)/communities/index` (nearby list), `(app)/communities/[id]` (feed + about), `(app)/communities/new`
 - `src/` is layered (see Architecture below)
 - `assets/icon.svg` is the icon source; `npm run icons` regenerates the PNGs in `assets/` (iOS icon, Android adaptive foreground/background/monochrome, splash, favicon)
-- Tokens live in SecureStore (`access_token`, `refresh_token`). Auth endpoint paths are constants in `src/infrastructure/http/endpoints.ts`; the backend does not serve them yet.
+- Tokens live in SecureStore (`access_token`, `refresh_token`). Auth, feed and community endpoint paths are constants in `src/infrastructure/http/endpoints.ts`; the backend
+(RELY-79 rewrite) serves none of them yet, so the client is proven against the fakes in `src/testing`.
 
 ## Architecture
 

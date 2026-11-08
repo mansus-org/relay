@@ -1,5 +1,5 @@
 import { makeHttpClient } from '../http/client'
-import { makeHttpCommunityRepository, makeHttpFeedRepository, makeHttpPostRepository } from '../http/feed-repository'
+import { makeHttpFeedRepository, makeHttpPostRepository } from '../http/feed-repository'
 import { makeFakeServer, type FakeHandler } from '../../testing/fake-server'
 import { makePostDto } from '../../testing/fakes'
 
@@ -64,17 +64,5 @@ describe('post repository', () => {
     const { http, seen } = setup(() => ({ status: 201, data: makePostDto('n', { location_cell: null }) }))
     await makeHttpPostRepository({ http }).create({ body: 'hi' })
     expect(JSON.parse(seen[0]!.data as string)).toEqual({ body: 'hi' })
-  })
-})
-
-describe('community repository', () => {
-  it('lists joined communities', async () => {
-    const { http } = setup(() => ({ status: 200, data: { communities: [{ id: '1', name: 'Vizinhos', extra: 1 }] } }))
-    expect(await makeHttpCommunityRepository({ http }).listJoined()).toEqual({ ok: true, value: [{ id: '1', name: 'Vizinhos' }] })
-  })
-
-  it('returns no communities while the endpoint is missing', async () => {
-    const { http } = setup(() => ({ status: 404 }))
-    expect(await makeHttpCommunityRepository({ http }).listJoined()).toEqual({ ok: true, value: [] })
   })
 })

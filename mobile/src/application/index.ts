@@ -1,4 +1,5 @@
 import type { SessionEvents } from '../domain'
+import type { makeCreateCommunity, makeJoinCommunity, makeLoadCommunity, makeLoadCommunityFeed, makeLoadNearbyCommunities } from './communities'
 import type { makeCreatePost, makeListJoinedCommunities } from './compose'
 import type { makeLoadFeed } from './feed'
 import type { makeCellPlaceName, makeResolveLocation } from './resolve-location'
@@ -8,6 +9,15 @@ import type { makeRegister } from './register'
 import type { makeLogout } from './logout'
 import type { makeRestoreSession } from './restore-session'
 
+export {
+  makeCreateCommunity,
+  makeJoinCommunity,
+  makeLoadCommunity,
+  makeLoadCommunityFeed,
+  makeLoadNearbyCommunities,
+  type CreateCommunityInput,
+  type JoinCommunityInput,
+} from './communities'
 export { makeCreatePost, makeListJoinedCommunities, type CreatePostInput } from './compose'
 export { makeLoadFeed } from './feed'
 export { makeCellPlaceName, makeResolveLocation, type LocationError, type ResolvedLocation } from './resolve-location'
@@ -30,5 +40,10 @@ export type UseCases = {
   readonly subscribeToPosts: ReturnType<typeof makeSubscribeToPosts>
   readonly createPost: ReturnType<typeof makeCreatePost>
   readonly listJoinedCommunities: ReturnType<typeof makeListJoinedCommunities>
+  readonly loadNearbyCommunities: ReturnType<typeof makeLoadNearbyCommunities>
+  readonly loadCommunity: ReturnType<typeof makeLoadCommunity>
+  readonly loadCommunityFeed: ReturnType<typeof makeLoadCommunityFeed>
+  readonly joinCommunity: ReturnType<typeof makeJoinCommunity>
+  readonly createCommunity: ReturnType<typeof makeCreateCommunity>
   readonly sessionEvents: SessionEvents
 }

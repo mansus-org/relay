@@ -2,9 +2,14 @@ import type { AxiosAdapter } from 'axios'
 
 import {
   makeCellPlaceName,
+  makeCreateCommunity,
   makeCreatePost,
+  makeJoinCommunity,
   makeListJoinedCommunities,
+  makeLoadCommunity,
+  makeLoadCommunityFeed,
   makeLoadFeed,
+  makeLoadNearbyCommunities,
   makeLogin,
   makeLogout,
   makeRefreshSession,
@@ -17,7 +22,8 @@ import {
 import type { LocationProvider, PlaceNamer } from '../domain'
 import { makeHttpAuthRepository } from '../infrastructure/http/auth-repository'
 import { makeHttpClient } from '../infrastructure/http/client'
-import { makeHttpCommunityRepository, makeHttpFeedRepository, makeHttpPostRepository } from '../infrastructure/http/feed-repository'
+import { makeHttpCommunityRepository } from '../infrastructure/http/community-repository'
+import { makeHttpFeedRepository, makeHttpPostRepository } from '../infrastructure/http/feed-repository'
 import { makeExpoLocationProvider, makeExpoPlaceNamer } from '../infrastructure/location/expo-location'
 import { makeH3CellEncoder } from '../infrastructure/location/h3-cell-encoder'
 import { makeFetchPostStream, type StreamFetch } from '../infrastructure/stream/fetch-post-stream'
@@ -78,6 +84,7 @@ export function wireUseCases({
   const refreshSession = makeRefreshSession({ authRepository, tokenReader: tokenStore, tokenWriter: tokenStore })
   const logout = makeLogout({ tokenWriter: tokenStore })
   const cellEncoder = makeH3CellEncoder()
+  const communityRepository = makeHttpCommunityRepository({ http })
   const postStream = makeFetchPostStream({ fetch: streamFetch ?? (globalThis.fetch as unknown as StreamFetch), getBaseUrl, getAccessToken })
 
   return {
@@ -90,7 +97,12 @@ export function wireUseCases({
     placeNameOf: makeCellPlaceName({ cellEncoder, placeNamer }),
     subscribeToPosts: makeSubscribeToPosts({ postStream }),
     createPost: makeCreatePost({ postRepository: makeHttpPostRepository({ http }) }),
-    listJoinedCommunities: makeListJoinedCommunities({ communityRepository: makeHttpCommunityRepository({ http }) }),
+    listJoinedCommunities: makeListJoinedCommunities({ communityRepository }),
+    loadNearbyCommunities: makeLoadNearbyCommunities({ communityRepository, cellEncoder }),
+    loadCommunity: makeLoadCommunity({ communityRepository, cellEncoder }),
+    loadCommunityFeed: makeLoadCommunityFeed({ communityRepository }),
+    joinCommunity: makeJoinCommunity({ communityRepository }),
+    createCommunity: makeCreateCommunity({ communityRepository }),
     sessionEvents,
   }
 }
