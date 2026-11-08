@@ -5,8 +5,12 @@ import {
   type LatLng,
   type LocationProvider,
   type PlaceNamer,
+  type PostalArea,
+  type PostalCodeError,
+  type PostalCodeResolver,
   type Post,
   err,
+  ok,
   type AuthError,
   type AuthRepository,
   type AuthTokens,
@@ -116,6 +120,24 @@ export const makeFakePlaceNamer = (name: string | null = 'Pinheiros, São Paulo'
   const calls: LatLng[] = []
   const namer: PlaceNamer = { nameOf: async (position) => (calls.push(position), name) }
   return { namer, calls }
+}
+
+export const makePostalArea = (postalCode: string, placeName: string, cell: string): PostalArea => ({ postalCode, placeName, cell })
+
+/** A PostalCodeResolver answering from a map; anything it was not told about is not found. */
+export const makeFakePostalCodeResolver = (
+  areas: Record<string, PostalArea> = {},
+  failure: PostalCodeError = { reason: 'not-found', message: '' },
+): PostalCodeResolver & { calls: string[] } => {
+  const calls: string[] = []
+  return {
+    calls,
+    resolve: (code) => {
+      calls.push(code)
+      const area = areas[code]
+      return Promise.resolve(area ? ok(area) : err(failure))
+    },
+  }
 }
 
 export const makeCommunity = (id: string, overrides: Partial<CommunityDetails> = {}): CommunityDetails => ({

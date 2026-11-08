@@ -12,9 +12,11 @@ import {
   makeLoadNearbyCommunities,
   makeLogin,
   makeLogout,
+  makeReadPostalCode,
   makeRefreshSession,
   makeRegister,
   makeResolveLocation,
+  makeResolvePostalCode,
   makeRestoreSession,
   makeSubscribeToPosts,
   type UseCases,
@@ -24,12 +26,14 @@ import { makeHttpAuthRepository } from '../infrastructure/http/auth-repository'
 import { makeHttpClient } from '../infrastructure/http/client'
 import { makeHttpCommunityRepository } from '../infrastructure/http/community-repository'
 import { makeHttpFeedRepository, makeHttpPostRepository } from '../infrastructure/http/feed-repository'
+import { makeHttpPostalCodeResolver } from '../infrastructure/http/postal-code-repository'
 import { makeExpoLocationProvider, makeExpoPlaceNamer } from '../infrastructure/location/expo-location'
 import { makeH3CellEncoder } from '../infrastructure/location/h3-cell-encoder'
 import { makeFetchPostStream, type StreamFetch } from '../infrastructure/stream/fetch-post-stream'
 import { makeSessionEvents } from '../infrastructure/session-events'
 import type { KeyValueStorage } from '../infrastructure/storage/key-value'
 import { makeServerUrlStore } from '../infrastructure/storage/server-url-store'
+import { makePostalCodeStore } from '../infrastructure/storage/postal-code-store'
 import { makeTokenStore } from '../infrastructure/storage/token-store'
 
 const API_PREFIX = '/api'
@@ -84,6 +88,7 @@ export function wireUseCases({
   const refreshSession = makeRefreshSession({ authRepository, tokenReader: tokenStore, tokenWriter: tokenStore })
   const logout = makeLogout({ tokenWriter: tokenStore })
   const cellEncoder = makeH3CellEncoder()
+  const postalCodeStore = makePostalCodeStore({ storage: preferenceStorage })
   const communityRepository = makeHttpCommunityRepository({ http })
   const postStream = makeFetchPostStream({ fetch: streamFetch ?? (globalThis.fetch as unknown as StreamFetch), getBaseUrl, getAccessToken })
 
@@ -94,6 +99,8 @@ export function wireUseCases({
     restoreSession: makeRestoreSession({ tokenReader: tokenStore, tokenWriter: tokenStore, refreshSession }),
     loadFeed: makeLoadFeed({ feedRepository: makeHttpFeedRepository({ http }) }),
     resolveLocation: makeResolveLocation({ locationProvider, cellEncoder, placeNamer }),
+    resolvePostalCode: makeResolvePostalCode({ resolver: makeHttpPostalCodeResolver({ http }), store: postalCodeStore }),
+    readPostalCode: makeReadPostalCode({ store: postalCodeStore }),
     placeNameOf: makeCellPlaceName({ cellEncoder, placeNamer }),
     subscribeToPosts: makeSubscribeToPosts({ postStream }),
     createPost: makeCreatePost({ postRepository: makeHttpPostRepository({ http }) }),

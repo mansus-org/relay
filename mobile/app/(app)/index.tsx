@@ -13,13 +13,14 @@ import { LocationOff } from '../../src/presentation/components/LocationOff'
 import { MonoLabel } from '../../src/presentation/components/MonoLabel'
 import { NewPostsBanner } from '../../src/presentation/components/NewPostsBanner'
 import { Ochre, PosterHeader } from '../../src/presentation/components/PosterHeader'
+import { PostalCodePrompt } from '../../src/presentation/components/PostalCodePrompt'
 import { colors, fonts } from '../../src/presentation/theme'
-import { useFeed } from '../../src/presentation/use-feed'
+import { useFeed, usesPostalCode } from '../../src/presentation/use-feed'
 
 export default function Feed() {
   const router = useRouter()
   const { user, logout } = useAuth()
-  const { state, enableLocation, refresh, loadMore, showPending } = useFeed()
+  const { state, enableLocation, setPostalCode, changePlace, backToFeed, refresh, loadMore, showPending } = useFeed()
   const list = useRef<FlatList>(null)
 
   // Coming back from compose: a post made without location never arrives on the stream.
@@ -33,14 +34,17 @@ export default function Feed() {
   )
 
   const denied = state.phase === 'denied'
+  const asking = state.phase === 'ask'
+  // Neither state has a place to put in the header yet.
+  const bare = denied || asking
   const place = state.placeName ?? 'Near you'
   const now = new Date()
 
   const header = (
     <PosterHeader
-      accessibleTitle={denied ? undefined : `${place}, ${FEED_RADIUS_KM} kilometres`}
+      accessibleTitle={bare ? undefined : `${place}, ${FEED_RADIUS_KM} kilometres`}
       title={
-        denied ? undefined : (
+        bare ? undefined : (
           <>
             {place}
             {'\n'}
@@ -48,9 +52,9 @@ export default function Feed() {
           </>
         )
       }
-      meta={denied ? undefined : 'Near you · relay.mansus.org'}
+      meta={bare ? undefined : 'Near you · relay.mansus.org'}
       decoration={
-        denied ? undefined : (
+        bare ? undefined : (
           <>
             <GeoSun size={150} right={-36} top={46} />
             <GeoRing size={190} right={-56} top={26} />
@@ -60,6 +64,13 @@ export default function Feed() {
       }
       trailing={
         <View style={styles.trailing}>
+          {usesPostalCode() && !bare ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Change place" onPress={changePlace} hitSlop={8} style={styles.navLink}>
+              <MonoLabel size={12} tracking={0.12} color={colors.paper}>
+                Change
+              </MonoLabel>
+            </Pressable>
+          ) : null}
           <Pressable accessibilityRole="button" accessibilityLabel="Communities" onPress={() => router.push('/communities')} hitSlop={8} style={styles.navLink}>
             <MonoLabel size={12} tracking={0.12} color={colors.paper}>
               Communities
@@ -72,6 +83,15 @@ export default function Feed() {
       }
     />
   )
+
+  if (asking) {
+    return (
+      <View style={styles.screen}>
+        {header}
+        <PostalCodePrompt onSubmit={setPostalCode} error={state.placeError} busy={state.checking} onCancel={state.cell ? backToFeed : undefined} />
+      </View>
+    )
+  }
 
   if (denied) {
     return (
@@ -101,7 +121,7 @@ export default function Feed() {
           onEndReachedThreshold={0.5}
           ListEmptyComponent={
             state.phase === 'locating' || (!state.failed && state.posts.length === 0 && !state.cell) ? (
-              <ActivityIndicator color={colors.red} style={styles.status} accessibilityLabel="Finding your location" />
+              <ActivityIndicator color={colors.red} style={styles.status} accessibilityLabel={usesPostalCode() ? 'Loading your place' : 'Finding your location'} />
             ) : state.failed ? (
               <Alert message="Could not load the feed. Pull down to try again." />
             ) : (
