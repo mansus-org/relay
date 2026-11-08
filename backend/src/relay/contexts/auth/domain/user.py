@@ -11,8 +11,9 @@ from relay.contexts.auth.domain.errors import (
 from relay.contexts.auth.domain.models import RelationalEntity
 from relay.shared.domain import ValueObject
 
-# A handle you can type on a phone: letters, digits, dot, underscore. No spaces, no accents.
-_USERNAME = re.compile(r"^[a-zA-Z0-9_.]{3,20}$")
+# A handle you can type on a phone: lowercase letters, digits, dot, dash, underscore.
+# Lowercase on purpose: "Ada" and "ada" are the same person and get the same account.
+_USERNAME = re.compile(r"^[a-z0-9._-]{3,20}$")
 
 MIN_PASSWORD_CHARS = 8
 # bcrypt reads the first 72 bytes and nothing after them, so a longer password is a false promise.
@@ -28,11 +29,12 @@ class Username(ValueObject):
 
     @classmethod
     def parse(cls, raw: str) -> "Username":
-        """Trim and validate, raising instead of returning None so the caller gets a message."""
-        value = raw.strip()
+        """Trim, fold to lowercase and validate, so one handle has one spelling."""
+        value = raw.strip().lower()
         if not _USERNAME.match(value):
             raise InvalidUsernameError(
-                "Usernames are 3-20 characters: letters, numbers, dots and underscores."
+                "Usernames are 3-20 characters: lowercase letters, numbers, dots, dashes, "
+                "underscores."
             )
         return cls(value=value)
 
@@ -50,7 +52,12 @@ class Password(ValueObject):
         if len(raw) < MIN_PASSWORD_CHARS:
             raise InvalidPasswordError(f"Passwords are at least {MIN_PASSWORD_CHARS} characters.")
         if len(raw.encode()) > MAX_PASSWORD_BYTES:
-            raise InvalidPasswordError(f"Passwords are at most {MAX_PASSWORD_BYTES} characters.")
+            # Counted in bytes, not characters: an accent is two of them, so the honest
+            # answer is how many plain characters fit, and fewer if they do not.
+            raise InvalidPasswordError(
+                f"Passwords are at most {MAX_PASSWORD_BYTES} bytes: that many plain "
+                "characters, fewer if they have accents."
+            )
         return cls(value=raw)
 
     def __str__(self) -> str:
@@ -71,6 +78,8 @@ class DisplayName(ValueObject):
             raise InvalidDisplayNameError(
                 f"Display names are at most {MAX_DISPLAY_NAME_CHARS} characters."
             )
+        if any(char.isspace() and char != " " for char in value):
+            raise InvalidDisplayNameError("A display name is one line.")
         return cls(value=value)
 
     def __str__(self) -> str:

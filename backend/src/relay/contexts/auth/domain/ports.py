@@ -11,7 +11,12 @@ class PasswordHasher(ABC):
     def hash(self, raw: str) -> str: ...
 
     @abstractmethod
-    def verify(self, raw: str, hashed: str) -> bool: ...
+    def verify(self, raw: str, hashed: str | None) -> bool:
+        """Check a password, or none at all when there is no account to check it against.
+
+        The None is on purpose: an implementation still pays the full cost of hashing
+        so that a missing account and a wrong password take the same time to answer.
+        """
 
 
 class TokenBroker(ABC):

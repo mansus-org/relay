@@ -1,8 +1,14 @@
 """Reading and writing accounts, invites and sessions."""
 
-from sqlalchemy import func, select
+from datetime import datetime
+from typing import Any, cast
+
+from sqlalchemy import Result, func, select, update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from relay.contexts.auth.domain.errors import UsernameTakenError
 from relay.contexts.auth.domain.invite import Invite, InviteToken
 from relay.contexts.auth.domain.refresh_token import RefreshToken
 from relay.contexts.auth.domain.repository import (
@@ -11,7 +17,21 @@ from relay.contexts.auth.domain.repository import (
     UserRepository,
 )
 from relay.contexts.auth.domain.user import User, Username
-from relay.contexts.auth.infrastructure.models import InviteRow, RefreshTokenRow, UserRow
+from relay.contexts.auth.infrastructure.models import (
+    InviteRow,
+    RefreshTokenRow,
+    UserRow,
+    naive_utc,
+)
+
+
+def rows_changed(result: Result[Any]) -> int:
+    """How many rows an UPDATE moved.
+
+    SQLAlchemy only promises `Result` back from `execute`, and `Result` has no rowcount; an
+    UPDATE really returns a CursorResult, so this says the quiet part once instead of twice.
+    """
+    return cast("CursorResult[Any]", result).rowcount
 
 
 class SqlAlchemyUserRepository(UserRepository):
@@ -29,8 +49,13 @@ class SqlAlchemyUserRepository(UserRepository):
         return row.to_entity() if row else None
 
     async def add(self, entity: User) -> None:
-        row = await self._session.merge(UserRow.from_entity(entity))
-        await self._session.flush()
+        try:
+            row = await self._session.merge(UserRow.from_entity(entity))
+            await self._session.flush()
+        except IntegrityError as error:
+            # Somebody took this handle between our look and our write. The unique index is
+            # the only thing here that can promise who won, so it is what we listen to.
+            raise UsernameTakenError("Someone already has that username.") from error
         entity.id = row.id
 
     async def count(self) -> int:
@@ -56,6 +81,24 @@ class SqlAlchemyInviteRepository(InviteRepository):
         await self._session.flush()
         entity.id = row.id
 
+    async def redeem(self, invite: Invite, *, user_id: int, at: datetime) -> bool:
+        # One statement, with "still open" in its WHERE: the database decides which of two
+        # people racing the same link wins, and the loser is the one that changes no row.
+        result = await self._session.execute(
+            update(InviteRow)
+            .where(
+                InviteRow.id == invite.require_id(),
+                InviteRow.used_at.is_(None),
+                InviteRow.revoked_at.is_(None),
+            )
+            .values(used_by_id=user_id, used_at=naive_utc(at))
+            .execution_options(synchronize_session=False)
+        )
+        if rows_changed(result) == 0:
+            return False
+        invite.redeem(user_id=user_id, at=at)
+        return True
+
     async def count(self) -> int:
         return await self._session.scalar(select(func.count()).select_from(InviteRow)) or 0
 
@@ -80,6 +123,23 @@ class SqlAlchemyRefreshTokenRepository(RefreshTokenRepository):
         row = await self._session.merge(RefreshTokenRow.from_entity(entity))
         await self._session.flush()
         entity.id = row.id
+
+    async def revoke(self, token: RefreshToken, *, at: datetime) -> bool:
+        # Same trick as spending an invite: only a session that is still running is touched,
+        # so whoever is replaying a spent ticket finds nothing to spend and gets False.
+        result = await self._session.execute(
+            update(RefreshTokenRow)
+            .where(
+                RefreshTokenRow.id == token.require_id(),
+                RefreshTokenRow.revoked_at.is_(None),
+            )
+            .values(revoked_at=naive_utc(at))
+            .execution_options(synchronize_session=False)
+        )
+        if rows_changed(result) == 0:
+            return False
+        token.revoke(at=at)
+        return True
 
     async def count(self) -> int:
         return await self._session.scalar(select(func.count()).select_from(RefreshTokenRow)) or 0

@@ -31,29 +31,33 @@ TOKEN_LENGTH = 64
 
 
 @overload
-def _naive_utc(value: datetime) -> datetime: ...
+def naive_utc(value: datetime) -> datetime: ...
 
 
 @overload
-def _naive_utc(value: None) -> None: ...
+def naive_utc(value: None) -> None: ...
 
 
-def _naive_utc(value: datetime | None) -> datetime | None:
-    """Drop the offset on the way in, since SQLite cannot carry one."""
+def naive_utc(value: datetime | None) -> datetime | None:
+    """Drop the offset on the way in: these columns are UTC with no offset to carry.
+
+    A bare UPDATE has to come through here too, or the two ways of writing would leave
+    two different shapes in one column and only one of them would read back right.
+    """
     if value is None or value.tzinfo is None:
         return value
     return value.astimezone(UTC).replace(tzinfo=None)
 
 
 @overload
-def _aware_utc(value: datetime) -> datetime: ...
+def aware_utc(value: datetime) -> datetime: ...
 
 
 @overload
-def _aware_utc(value: None) -> None: ...
+def aware_utc(value: None) -> None: ...
 
 
-def _aware_utc(value: datetime | None) -> datetime | None:
+def aware_utc(value: datetime | None) -> datetime | None:
     """Put the offset back on the way out, so the domain only ever sees aware UTC."""
     if value is None or value.tzinfo is not None:
         return value
@@ -80,7 +84,7 @@ class UserRow(Base):
             display_name=str(user.display_name),
             password_hash=user.password_hash,
             is_admin=user.is_admin,
-            created_at=_naive_utc(user.created_at),
+            created_at=naive_utc(user.created_at),
         )
 
     def to_entity(self) -> User:
@@ -90,7 +94,7 @@ class UserRow(Base):
             display_name=DisplayName(value=self.display_name),
             password_hash=self.password_hash,
             is_admin=self.is_admin,
-            created_at=_aware_utc(self.created_at),
+            created_at=aware_utc(self.created_at),
         )
 
 
@@ -114,9 +118,9 @@ class InviteRow(Base):
             token=str(invite.token),
             created_by_id=invite.created_by_id,
             used_by_id=invite.used_by_id,
-            used_at=_naive_utc(invite.used_at),
-            revoked_at=_naive_utc(invite.revoked_at),
-            created_at=_naive_utc(invite.created_at),
+            used_at=naive_utc(invite.used_at),
+            revoked_at=naive_utc(invite.revoked_at),
+            created_at=naive_utc(invite.created_at),
         )
 
     def to_entity(self) -> Invite:
@@ -125,9 +129,9 @@ class InviteRow(Base):
             token=InviteToken(value=self.token),
             created_by_id=self.created_by_id,
             used_by_id=self.used_by_id,
-            used_at=_aware_utc(self.used_at),
-            revoked_at=_aware_utc(self.revoked_at),
-            created_at=_aware_utc(self.created_at),
+            used_at=aware_utc(self.used_at),
+            revoked_at=aware_utc(self.revoked_at),
+            created_at=aware_utc(self.created_at),
         )
 
 
@@ -149,9 +153,9 @@ class RefreshTokenRow(Base):
             id=token.id,
             user_id=token.user_id,
             token_hash=token.token_hash,
-            expires_at=_naive_utc(token.expires_at),
-            revoked_at=_naive_utc(token.revoked_at),
-            created_at=_naive_utc(token.created_at),
+            expires_at=naive_utc(token.expires_at),
+            revoked_at=naive_utc(token.revoked_at),
+            created_at=naive_utc(token.created_at),
         )
 
     def to_entity(self) -> RefreshToken:
@@ -159,7 +163,7 @@ class RefreshTokenRow(Base):
             id=self.id,
             user_id=self.user_id,
             token_hash=self.token_hash,
-            expires_at=_aware_utc(self.expires_at),
-            revoked_at=_aware_utc(self.revoked_at),
-            created_at=_aware_utc(self.created_at),
+            expires_at=aware_utc(self.expires_at),
+            revoked_at=aware_utc(self.revoked_at),
+            created_at=aware_utc(self.created_at),
         )

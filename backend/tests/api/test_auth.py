@@ -130,6 +130,37 @@ async def test_a_registration_that_breaks_a_rule_says_which_one(
     assert rule in response.json()["detail"]
 
 
+async def test_a_handle_is_one_handle_whatever_case_it_arrives_in(
+    app: FastAPI, http: AsyncClient
+) -> None:
+    await register(http, app, username="Ada_Lovelace")
+
+    logged_in = await http.post(
+        "/api/auth/login",
+        json={"username": "ADA_LOVELACE", "password": ADA["password"]},
+    )
+    again = await http.post(
+        "/api/auth/register", json=await a_registration(app, username="ada_lovelace")
+    )
+
+    assert logged_in.status_code == 200
+    assert again.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "field"),
+    [("/api/auth/register", "display_name"), ("/api/auth/refresh", "refresh_token")],
+)
+async def test_a_request_too_big_to_be_sincere_is_refused_before_anything_is_hashed(
+    app: FastAPI, http: AsyncClient, endpoint: str, field: str
+) -> None:
+    body = await a_registration(app) if endpoint.endswith("register") else {}
+
+    response = await http.post(endpoint, json=body | {field: "x" * 5000})
+
+    assert response.status_code == 422
+
+
 async def test_the_right_password_opens_a_session(app: FastAPI, http: AsyncClient) -> None:
     await register(http, app)
 

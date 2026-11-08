@@ -58,8 +58,14 @@ class RegisterWithInvite:
                 password_hash=self._hasher.hash(str(Password.parse(password))),
             )
             await self._uow.users.add(user)
-            invite.redeem(user_id=user.require_id(), at=self._clock.now())
-            await self._uow.invites.add(invite)
+            # Spending is one write in the database, not a read we trusted: two people who
+            # race the same link leave one of them here with False, and no second account.
+            spent = await self._uow.invites.redeem(
+                invite, user_id=user.require_id(), at=self._clock.now()
+            )
+            if not spent:
+                raise InviteSpentError("Somebody else just spent that invite.")
+
             tokens = await self._issuer.execute(user.require_id())
             await self._uow.commit()
             return Registration(user=user, tokens=tokens)

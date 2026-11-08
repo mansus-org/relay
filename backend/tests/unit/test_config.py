@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from relay.main import check_secret_key
 from relay.shared.config import Settings
 
 
@@ -44,3 +45,16 @@ def test_web_dist_dir_is_off_by_default_and_when_empty(monkeypatch: pytest.Monke
     assert Settings().web_dist_dir is None
     monkeypatch.setenv("WEB_DIST_DIR", "/srv/web")
     assert str(Settings().web_dist_dir) == "/srv/web"
+
+
+def test_a_relay_still_on_the_development_key_refuses_to_start() -> None:
+    with pytest.raises(RuntimeError, match="forge a session"):
+        check_secret_key(Settings())
+
+
+def test_running_on_the_development_key_has_to_be_said_out_loud() -> None:
+    check_secret_key(Settings(allow_insecure_secret_key=True))
+
+
+def test_a_key_nobody_else_knows_needs_no_permission() -> None:
+    check_secret_key(Settings(secret_key="something-only-this-machine-knows"))

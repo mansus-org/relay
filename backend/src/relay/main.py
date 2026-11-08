@@ -22,10 +22,7 @@ def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         configure_logging(settings.log_level)
-        if settings.secret_key == DEV_SECRET_KEY:
-            logger.warning(
-                "SECRET_KEY is still the development default: set one before anyone connects."
-            )
+        check_secret_key(settings)
         engine = create_engine(settings.database_url)
         app.state.container = Container(settings, create_session_factory(engine))
         await _seed_first_admin(app.state.container)
@@ -44,6 +41,24 @@ def create_app(settings: Settings) -> FastAPI:
     if settings.web_dist_dir is not None:
         app.include_router(web_router(settings.web_dist_dir))  # last: it matches every other path
     return app
+
+
+def check_secret_key(settings: Settings) -> None:
+    """Refuse to hand out sessions signed with a key anybody can read.
+
+    The development default is a published string, so a Relay running with it is one
+    request away from forged logins. Running that way has to be said out loud, per process.
+    """
+    if settings.secret_key != DEV_SECRET_KEY:
+        return
+    if settings.allow_insecure_secret_key:
+        logger.warning("SECRET_KEY is still the development default: never ship this.")
+        return
+    raise RuntimeError(
+        "SECRET_KEY is still the development default, so anyone could forge a session. "
+        "Set SECRET_KEY to something nobody can guess (openssl rand -hex 32), or set "
+        "ALLOW_INSECURE_SECRET_KEY=1 to run with the development key anyway."
+    )
 
 
 async def _seed_first_admin(container: Container) -> None:

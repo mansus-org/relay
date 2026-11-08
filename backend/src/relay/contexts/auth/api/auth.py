@@ -11,7 +11,6 @@ from relay.contexts.auth.application import (
     Login,
     RefreshAccessToken,
     RegisterWithInvite,
-    RenewedSession,
 )
 from relay.contexts.auth.domain.errors import (
     InvalidCredentialsError,
@@ -29,33 +28,50 @@ from relay.shared.api.dependencies import get_container
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# Long enough for any real token or name, short enough that a request cannot bury the
+# password hasher in megabytes before the domain gets to say what it thinks.
+_MAX_TOKEN_CHARS = 512
+_MAX_USERNAME_CHARS = 40
+_MAX_PASSWORD_CHARS = 200
+_MAX_DISPLAY_NAME_CHARS = 120
+
 
 class RegisterRequest(BaseModel):
     """A new account, paid for with an invite."""
 
-    invite_token: str = Field(min_length=1, description="The token from the invite link.")
-    username: str = Field(min_length=1, description="Lowercase, 3-20 of a-z 0-9 . _ -")
-    password: str = Field(min_length=1, description="At least 8 characters.")
-    display_name: str = Field(min_length=1, description="What to call you, up to 60 characters.")
+    invite_token: str = Field(
+        min_length=1, max_length=_MAX_TOKEN_CHARS, description="The token from the invite link."
+    )
+    username: str = Field(
+        min_length=1, max_length=_MAX_USERNAME_CHARS, description="Lowercase, 3-20 of a-z 0-9 . _ -"
+    )
+    password: str = Field(
+        min_length=1, max_length=_MAX_PASSWORD_CHARS, description="At least 8 characters."
+    )
+    display_name: str = Field(
+        min_length=1,
+        max_length=_MAX_DISPLAY_NAME_CHARS,
+        description="What to call you, up to 60 characters.",
+    )
 
     @field_validator("invite_token", "username", "display_name")
     @classmethod
     def _no_stray_space(cls, value: str) -> str:
-        """Nobody ever meant a space at either end of one of these."""
+        """Nobody ever meant a space at either end of one of these; empty is the domain's call."""
         return value.strip()
 
 
 class LoginRequest(BaseModel):
     """An account and the password for it. Both are checked together, or not at all."""
 
-    username: str = Field(min_length=1)
-    password: str = Field(min_length=1)
+    username: str = Field(min_length=1, max_length=_MAX_USERNAME_CHARS)
+    password: str = Field(min_length=1, max_length=_MAX_PASSWORD_CHARS)
 
 
 class RefreshRequest(BaseModel):
     """The refresh token from the last time round."""
 
-    refresh_token: str = Field(min_length=1)
+    refresh_token: str = Field(min_length=1, max_length=_MAX_TOKEN_CHARS)
 
 
 class TokenResponse(BaseModel):
@@ -67,7 +83,7 @@ class TokenResponse(BaseModel):
     expires_in_seconds: int
 
     @classmethod
-    def from_domain(cls, tokens: TokenPair | RenewedSession) -> "TokenResponse":
+    def from_domain(cls, tokens: TokenPair) -> "TokenResponse":
         return cls(
             access_token=tokens.access_token,
             refresh_token=str(tokens.refresh_token),
@@ -173,8 +189,8 @@ async def login(
     response_model=TokenResponse,
     summary="Trade in a refresh token for a new pair",
     description=(
-        "The old refresh token stops working here: each one is good once, so a stolen "
-        "one is caught the moment its owner uses it."
+        "The old refresh token stops working here: each one is good once, so a token "
+        "that has been spent cannot buy anything again."
     ),
     responses={401: {"description": "Never issued, already used, revoked, or out of date"}},
 )

@@ -21,6 +21,13 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default="sqlite+aiosqlite:///./relay.db")
     secret_key: str = Field(default=DEV_SECRET_KEY, description="Signs access tokens (SECRET_KEY)")
+    allow_insecure_secret_key: bool = Field(
+        default=False,
+        description=(
+            "Start anyway with the development SECRET_KEY, which anyone can forge "
+            "(ALLOW_INSECURE_SECRET_KEY). A laptop only, never a deployment."
+        ),
+    )
     admin_username: str | None = Field(
         default=None,
         description="Create this account if the database has nobody yet (ADMIN_USERNAME)",

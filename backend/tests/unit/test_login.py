@@ -14,6 +14,17 @@ from tests.fakes.auth import (
 from tests.fakes.clock import FixedClock
 
 
+class RecordingHasher(PlainPasswordHasher):
+    """Remembers what it was asked to check, so a test can see the work was done."""
+
+    def __init__(self) -> None:
+        self.checked: list[str | None] = []
+
+    def verify(self, raw: str, hashed: str | None) -> bool:
+        self.checked.append(hashed)
+        return super().verify(raw, hashed)
+
+
 class Wiring:
     """An account made through the front door, and the login that can try it."""
 
@@ -64,6 +75,28 @@ async def test_the_session_is_recorded_against_the_account(wiring: Wiring) -> No
     assert session is not None
     assert session.user_id == ada.require_id()
     assert session.is_active
+
+
+async def test_a_handle_typed_in_any_case_finds_the_same_account(wiring: Wiring) -> None:
+    await wiring.an_account(username="ada")
+
+    await wiring.login.execute(username="ADA", password="hunter2222")
+
+    assert wiring.broker.issued == [1]
+
+
+async def test_a_login_against_nobody_still_pays_for_a_hash() -> None:
+    """A missing account answers as slowly as a wrong password, or the clock tells on us."""
+    uow = FakeAuthUnitOfWork()
+    hasher = RecordingHasher()
+    issuer = IssueTokens(tokens=CountingTokenBroker(), clock=FixedClock(), uow=uow)
+
+    with pytest.raises(InvalidCredentialsError):
+        await Login(uow=uow, hasher=hasher, issuer=issuer).execute(
+            username="ada", password="hunter2222"
+        )
+
+    assert hasher.checked == [None]
 
 
 async def test_a_wrong_password_gives_the_same_answer_as_a_wrong_name(wiring: Wiring) -> None:

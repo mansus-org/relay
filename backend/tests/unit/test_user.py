@@ -15,11 +15,21 @@ from relay.contexts.auth.domain.user import (
 )
 
 
-def test_a_username_is_kept_exactly_as_typed_apart_from_the_padding() -> None:
-    assert str(Username.parse("  ada.lovelace ")) == "ada.lovelace"
+def test_a_username_is_folded_to_lowercase_and_stripped_of_its_padding() -> None:
+    assert str(Username.parse("  Ada.Lovelace ")) == "ada.lovelace"
 
 
-@pytest.mark.parametrize("raw", ["ad", "a" * 21, "ada lovelace", "ada@lovelace", "", "   "])
+def test_two_spellings_of_one_handle_are_one_handle() -> None:
+    assert Username.parse("ADA_love") == Username.parse("ada_love")
+
+
+def test_a_dash_is_a_fine_character_in_a_handle() -> None:
+    assert str(Username.parse("ada-lovelace")) == "ada-lovelace"
+
+
+@pytest.mark.parametrize(
+    "raw", ["ad", "a" * 21, "ada lovelace", "ada@lovelace", "ada\u00f1a", "", "   "]
+)
 def test_a_username_someone_could_not_type_is_refused(raw: str) -> None:
     with pytest.raises(InvalidUsernameError):
         Username.parse(raw)
@@ -35,9 +45,21 @@ def test_a_password_beyond_what_bcrypt_reads_is_refused_rather_than_quietly_cut(
         Password.parse("x" * (MAX_PASSWORD_BYTES + 1))
 
 
+def test_a_password_is_counted_in_bytes_because_that_is_where_bcrypt_stops() -> None:
+    # Forty of these is forty characters and eighty bytes: bcrypt would read half of it
+    # and swear the rest was the wrong password.
+    with pytest.raises(InvalidPasswordError):
+        Password.parse("\u00e9" * 40)
+
+
 def test_a_display_name_cannot_be_blank() -> None:
     with pytest.raises(InvalidDisplayNameError):
         DisplayName.parse("   ")
+
+
+def test_a_display_name_is_one_line_and_says_so() -> None:
+    with pytest.raises(InvalidDisplayNameError):
+        DisplayName.parse("Ada\nLovelace")
 
 
 def test_a_display_name_is_capped_at_one_line() -> None:

@@ -26,8 +26,11 @@ class Login:
                 raise InvalidCredentialsError("Username or password is wrong.") from None
             user = await self._uow.users.get_by_username(handle)
             # A missing account and a wrong password have to look identical from outside,
-            # or the login form becomes a list of everyone with a Relay account.
-            if user is None or not self._hasher.verify(password, user.password_hash):
+            # in what they say and in how long they take. So the hash is asked either way:
+            # with nobody found it is asked against a hash of nothing, and a stopwatch
+            # cannot tell the two answers apart.
+            matches = self._hasher.verify(password, None if user is None else user.password_hash)
+            if user is None or not matches:
                 raise InvalidCredentialsError("Username or password is wrong.")
 
             tokens = await self._issuer.execute(user.require_id())

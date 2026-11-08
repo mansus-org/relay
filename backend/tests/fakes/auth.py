@@ -1,6 +1,6 @@
 """Stand-ins for the auth tables and ports, so a use-case test never has to open a database."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
 from relay.contexts.auth.domain.errors import InvalidTokenError
@@ -68,6 +68,13 @@ class InMemoryInviteRepository(InviteRepository):
             entity.id = self._sequence.next()
         self._items[entity.id] = entity
 
+    async def redeem(self, invite: Invite, *, user_id: int, at: datetime) -> bool:
+        """Spend it, and say False when somebody already did."""
+        if not invite.is_open:
+            return False
+        invite.redeem(user_id=user_id, at=at)
+        return True
+
 
 class InMemoryRefreshTokenRepository(RefreshTokenRepository):
     """Sessions, found by the fingerprint of the token."""
@@ -88,6 +95,13 @@ class InMemoryRefreshTokenRepository(RefreshTokenRepository):
         if entity.id is None:
             entity.id = self._sequence.next()
         self._items[entity.id] = entity
+
+    async def revoke(self, token: RefreshToken, *, at: datetime) -> bool:
+        """End it, and say False when it was already over."""
+        if not token.is_active:
+            return False
+        token.revoke(at=at)
+        return True
 
 
 class FakeAuthUnitOfWork(FakeUnitOfWork, AuthUnitOfWork):
@@ -110,8 +124,8 @@ class PlainPasswordHasher(PasswordHasher):
     def hash(self, raw: str) -> str:
         return f"hashed:{raw}"
 
-    def verify(self, raw: str, hashed: str) -> bool:
-        return hashed == self.hash(raw)
+    def verify(self, raw: str, hashed: str | None) -> bool:
+        return hashed is not None and hashed == self.hash(raw)
 
 
 class CountingTokenBroker(TokenBroker):
