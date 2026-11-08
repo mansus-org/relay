@@ -40,6 +40,9 @@ export function makeHttpClient({
     }
     const original = error.config
     if (original.authRetried || original.skipAuthRefresh) throw error
+    // With no access token there is no session to refresh. A stranger's 401 is a refused read, and
+    // ending a session they never had would throw them out of the feed and onto the login screen.
+    if (!(await getAccessToken())) throw error
     original.authRetried = true
     const accessToken = await refreshAccessToken().catch(() => null)
     if (!accessToken) {

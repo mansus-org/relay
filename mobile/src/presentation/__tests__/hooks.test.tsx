@@ -6,7 +6,7 @@ import { err, ok, type FeedPage, type Post } from '../../domain'
 import { makeFakePostalCodeResolver, makePostalArea, makePost } from '../../testing/fakes'
 import { UseCasesProvider } from '../use-cases'
 import { useCompose } from '../use-compose'
-import { useFeed } from '../use-feed'
+import { useFeed, type FeedOptions } from '../use-feed'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -19,15 +19,16 @@ function mount<T>(hook: () => T, overrides: Partial<UseCases>) {
     result.current = hook()
     return null
   }
+  const tree = () => (
+    <UseCasesProvider useCases={useCases}>
+      <Probe />
+    </UseCasesProvider>
+  )
   let renderer: ReturnType<typeof create>
   act(() => {
-    renderer = create(
-      <UseCasesProvider useCases={useCases}>
-        <Probe />
-      </UseCasesProvider>,
-    )
+    renderer = create(tree())
   })
-  return { result, unmount: () => act(() => renderer.unmount()) }
+  return { result, rerender: () => act(() => renderer.update(tree())), unmount: () => act(() => renderer.unmount()) }
 }
 
 const located = ok({ cell: 'cell-1', placeName: 'Pinheiros' })
@@ -109,8 +110,9 @@ describe('useFeed on the web', () => {
   beforeAll(() => void (platform.OS = 'web'))
   afterAll(() => void (platform.OS = native))
 
-  function setup(saved: string | null = null) {
+  function setup(saved: string | null = null, initial: FeedOptions = {}) {
     let code = saved
+    let options = initial
     const store = { read: async () => code, save: async (next: string) => void (code = next) }
     const resolver = makeFakePostalCodeResolver(
       { '36201': makePostalArea('36201', 'Vigo', 'cell-vigo'), '15003': makePostalArea('15003', 'A Coruña', 'cell-coruna') },
@@ -120,7 +122,7 @@ describe('useFeed on the web', () => {
     const loadFeed = jest.fn(async ({ cursor }: { cell: string; cursor?: string }) => ok(cursor ? page(['c', 'd'], null) : page(['a', 'b'], 'next')))
     const resolveLocation = jest.fn(async () => located)
     const subscribeToPosts = jest.fn(() => unsubscribe)
-    const mounted = mount(useFeed, {
+    const mounted = mount(() => useFeed(options), {
       loadFeed,
       resolveLocation,
       subscribeToPosts,
@@ -131,7 +133,14 @@ describe('useFeed on the web', () => {
       act(() => mounted.result.current.setPostalCode(raw))
       return flush()
     }
-    return { ...mounted, submit, loadFeed, resolveLocation, resolver, saved: () => code }
+    // The feed screen hands the hook a new options object on every render, so the tests can too.
+    const setPlaced = (onPlaced: (code: string) => void) => {
+      options = { ...options, onPlaced }
+      act(() => {
+        mounted.rerender()
+      })
+    }
+    return { ...mounted, submit, setPlaced, loadFeed, resolveLocation, resolver, saved: () => code }
   }
 
   it('asks for a postal code when no place was ever chosen', async () => {
@@ -202,6 +211,44 @@ describe('useFeed on the web', () => {
     await act(async () => t.result.current.loadMore())
     await act(async () => t.result.current.refresh())
     expect(t.resolveLocation).not.toHaveBeenCalled()
+    expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['a', 'b'])
+  })
+
+  it('opens on the place the address names, not the one it remembers', async () => {
+    const t = setup('36201', { requestedCode: '15003' })
+    await flush()
+    expect(t.result.current.state.placeName).toBe('A Coruña')
+    expect(t.loadFeed).toHaveBeenCalledWith({ cell: 'cell-coruna' })
+    expect(t.saved()).toBe('15003')
+  })
+
+  it('reads the address once: a code that goes away does not move the feed', async () => {
+    const t = setup(null, { requestedCode: '15003' })
+    await flush()
+    await t.submit('36201')
+    expect(t.loadFeed).toHaveBeenCalledTimes(2)
+    t.setPlaced(() => {})
+    await flush()
+    expect(t.result.current.state.placeName).toBe('Vigo')
+    expect(t.loadFeed).toHaveBeenCalledTimes(2)
+  })
+
+  it('says which place it opened, so the address can follow it', async () => {
+    const placed = jest.fn()
+    const t = setup('36201', { onPlaced: placed })
+    await flush()
+    expect(placed).toHaveBeenCalledWith('36201')
+    await t.submit('15003')
+    expect(placed).toHaveBeenLastCalledWith('15003')
+  })
+
+  it('does not reload when the caller hands over a new callback', async () => {
+    const t = setup('36201')
+    await flush()
+    expect(t.loadFeed).toHaveBeenCalledTimes(1)
+    t.setPlaced(() => {})
+    await flush()
+    expect(t.loadFeed).toHaveBeenCalledTimes(1)
     expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['a', 'b'])
   })
 })
