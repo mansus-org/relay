@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AppState } from 'react-native'
+import { AppState, Platform } from 'react-native'
 
-import { appendPage, bufferPost, prependPosts, type Post } from '../domain'
+import { appendPage, bufferPost, postalCodeMessage, prependPosts, type Post } from '../domain'
 import { useUseCases } from './use-cases'
 
-export type FeedPhase = 'locating' | 'denied' | 'ready'
+/** The web has no GPS, so the user names their place with a postal code instead. */
+export const usesPostalCode = (): boolean => Platform.OS === 'web'
+
+export type FeedPhase =
+  | 'locating'
+  /** Waiting for a postal code; the web only, and only until one is chosen. */
+  | 'ask'
+  | 'denied'
+  | 'ready'
 
 export type FeedState = {
   phase: FeedPhase
@@ -19,6 +27,10 @@ export type FeedState = {
   hasMore: boolean
   /** True when the last load failed with nothing to show. */
   failed: boolean
+  /** What to say under the postal-code field; null when there is nothing to say. */
+  placeError: string | null
+  /** A postal-code lookup is in flight. */
+  checking: boolean
 }
 
 const initial: FeedState = {
@@ -32,15 +44,19 @@ const initial: FeedState = {
   loadingMore: false,
   hasMore: false,
   failed: false,
+  placeError: null,
+  checking: false,
 }
 
 /** Location → H3 cell → paginated feed plus the live stream of new posts for that cell. */
 export function useFeed() {
-  const { resolveLocation, loadFeed, subscribeToPosts } = useUseCases()
+  const { resolveLocation, resolvePostalCode, readPostalCode, loadFeed, subscribeToPosts } = useUseCases()
   const [state, setState] = useState<FeedState>(initial)
   const cursor = useRef<string | null>(null)
   const generation = useRef(0)
   const loadingMore = useRef(false)
+  /** The postal code the feed is currently reading, so a refresh does not have to ask storage. */
+  const code = useRef<string | null>(null)
 
   const patch = useCallback((next: Partial<FeedState>) => setState((s) => ({ ...s, ...next })), [])
 
@@ -59,6 +75,32 @@ export function useFeed() {
     [loadFeed, patch],
   )
 
+  /** Resolves a typed postal code and points the feed at it. A failed lookup leaves the feed alone. */
+  const applyPostalCode = useCallback(
+    async (raw: string) => {
+      patch({ checking: true, placeError: null })
+      const area = await resolvePostalCode(raw)
+      if (!area.ok) {
+        setState((s) => ({
+          ...s,
+          checking: false,
+          placeError: postalCodeMessage(area.error),
+          ...(s.cell ? {} : { phase: 'ask' as const }),
+        }))
+        return
+      }
+      code.current = area.value.postalCode
+      const { cell, placeName } = area.value
+      setState((s) =>
+        s.cell === cell
+          ? { ...s, phase: 'ready', checking: false, placeName }
+          : { ...s, phase: 'ready', checking: false, cell, placeName, posts: [], pending: [] },
+      )
+      await loadFirstPage(cell)
+    },
+    [resolvePostalCode, loadFirstPage, patch],
+  )
+
   /** Resolves the location, then loads the feed. `prompt` allows the permission dialog. */
   const start = useCallback(
     async (prompt: boolean) => {
@@ -75,11 +117,18 @@ export function useFeed() {
     [resolveLocation, loadFirstPage, patch],
   )
 
+  /** Reopens on the saved postal code, or asks for one when the user never chose a place. */
+  const startFromPostalCode = useCallback(async () => {
+    const saved = await readPostalCode()
+    if (!saved) return patch({ phase: 'ask' })
+    await applyPostalCode(saved)
+  }, [readPostalCode, applyPostalCode, patch])
+
   useEffect(() => {
     // start() only sets state after the first await, so this is not a synchronous update.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void start(true)
-  }, [start])
+    void (usesPostalCode() ? startFromPostalCode() : start(true))
+  }, [start, startFromPostalCode])
 
   // Returning from the system settings screen after granting permission.
   const denied = state.phase === 'denied'
@@ -101,9 +150,13 @@ export function useFeed() {
 
   const refresh = useCallback(async () => {
     patch({ refreshing: true })
-    await start(false)
+    if (usesPostalCode()) {
+      if (code.current) await applyPostalCode(code.current)
+    } else {
+      await start(false)
+    }
     patch({ refreshing: false })
-  }, [start, patch])
+  }, [start, applyPostalCode, patch])
 
   const loadMore = useCallback(async () => {
     if (!cell || !cursor.current || loadingMore.current) return
@@ -127,5 +180,12 @@ export function useFeed() {
     [],
   )
 
-  return { state, enableLocation: () => start(true), refresh, loadMore, showPending }
+  /** The web: read the feed of a typed postal code. */
+  const setPostalCode = useCallback((raw: string) => void applyPostalCode(raw), [applyPostalCode])
+  /** The web: back to the prompt; the current feed stays put until a new place resolves. */
+  const changePlace = useCallback(() => setState((s) => ({ ...s, phase: 'ask', placeError: null })), [])
+  /** The web: leave the prompt without choosing a new place. */
+  const backToFeed = useCallback(() => setState((s) => ({ ...s, phase: s.cell ? 'ready' : 'ask', placeError: null })), [])
+
+  return { state, enableLocation: () => start(true), setPostalCode, changePlace, backToFeed, refresh, loadMore, showPending }
 }

@@ -3,7 +3,10 @@
 The Python (FastAPI) backend of Relay. It replaces the old Go node, and is
 built as a SOLID + Domain-Driven Design skeleton: one package
 per bounded context, with `api`, `application`, `domain` and `infrastructure`
-layers. Today it ships the skeleton and `GET /health`.
+layers. Today it ships the skeleton, `GET /api/health`, and the `location`
+context: `GET /api/location/postal-code/{postal_code}` turns a Spanish postal
+code into the locality and H3 cell a feed is read from. Galicia only for now
+(`15`, `27`, `32`, `36`), and nothing about the viewer is stored.
 
 The architecture, testing plan and tooling are in
 [`docs/backend-development.md`](../docs/backend-development.md).
@@ -22,6 +25,8 @@ uv sync                                  # install Python + dependencies
 uv run alembic upgrade head              # create/upgrade the SQLite database
 uv run uvicorn relay.main:app --reload   # serve on http://localhost:8000
 curl localhost:8000/api/health           # {"status":"ok","version":"dev"} (/health works too)
+curl localhost:8000/api/location/postal-code/15001
+# {"postal_code":"15001","place_name":"A Coruña","cell":"883925cf43fffff"}
 uv run pytest                            # unit, integration, API tests
 ```
 

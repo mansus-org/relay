@@ -1,6 +1,7 @@
 import { DEFAULT_SERVER_URL } from '../../domain'
 import { makeMemoryStorage } from '../../testing/fakes'
 import { makeServerUrlStore, SERVER_URL_KEY } from '../storage/server-url-store'
+import { makePostalCodeStore, POSTAL_CODE_KEY } from '../storage/postal-code-store'
 import { ACCESS_TOKEN_KEY, makeTokenStore, REFRESH_TOKEN_KEY } from '../storage/token-store'
 import { makeSessionEvents } from '../session-events'
 
@@ -45,6 +46,21 @@ describe('server URL store', () => {
     await store.set('https://friends.example')
     expect(storage.data.get(SERVER_URL_KEY)).toBe('https://friends.example')
     expect(await store.get()).toBe('https://friends.example')
+  })
+})
+
+describe('postal code store', () => {
+  it('has no place until one is chosen', async () => {
+    expect(await makePostalCodeStore({ storage: makeMemoryStorage() }).read()).toBeNull()
+  })
+
+  it('keeps the last place chosen', async () => {
+    const storage = makeMemoryStorage()
+    const store = makePostalCodeStore({ storage })
+    await store.save('36201')
+    await store.save('15003')
+    expect(storage.data.get(POSTAL_CODE_KEY)).toBe('15003')
+    expect(await store.read()).toBe('15003')
   })
 })
 

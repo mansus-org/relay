@@ -3,6 +3,7 @@ import type { AuthTokens, Credentials, RefreshedSession, Registration, Session }
 import type { ApiError, Community, FeedPage, FeedQuery, LatLng, LocationStatus, NewPost, Post } from './post'
 import type { Result } from './result'
 import type { CommunityDetails, CommunityError, CommunityFeedQuery, JoinRequest, NewCommunity } from './community'
+import type { PostalArea, PostalCodeError } from './postal-code'
 
 export type AuthRepository = {
   readonly login: (credentials: Credentials) => Promise<Result<Session, AuthError>>
@@ -73,6 +74,20 @@ export type LocationProvider = {
 export type CellEncoder = {
   readonly cellOf: (position: LatLng) => string
   readonly centerOf: (cell: string) => LatLng
+}
+
+export type PostalCodeResolver = {
+  /** The place a postal code names, or why it has none. */
+  readonly resolve: (code: string) => Promise<Result<PostalArea, PostalCodeError>>
+}
+
+export type PostalCodeReader = {
+  /** The postal code the user last chose, or null when they never chose one. */
+  readonly read: () => Promise<string | null>
+}
+
+export type PostalCodeWriter = {
+  readonly save: (code: string) => Promise<void>
 }
 
 export type PlaceNamer = {

@@ -3,6 +3,7 @@ import type { makeCreateCommunity, makeJoinCommunity, makeLoadCommunity, makeLoa
 import type { makeCreatePost, makeListJoinedCommunities } from './compose'
 import type { makeLoadFeed } from './feed'
 import type { makeCellPlaceName, makeResolveLocation } from './resolve-location'
+import type { makeReadPostalCode, makeResolvePostalCode } from './resolve-postal-code'
 import type { makeSubscribeToPosts } from './subscribe-to-posts'
 import type { makeLogin } from './login'
 import type { makeRegister } from './register'
@@ -21,6 +22,7 @@ export {
 export { makeCreatePost, makeListJoinedCommunities, type CreatePostInput } from './compose'
 export { makeLoadFeed } from './feed'
 export { makeCellPlaceName, makeResolveLocation, type LocationError, type ResolvedLocation } from './resolve-location'
+export { makeReadPostalCode, makeResolvePostalCode } from './resolve-postal-code'
 export { makeSubscribeToPosts } from './subscribe-to-posts'
 export { makeLogin, type LoginInput } from './login'
 export { makeLogout } from './logout'
@@ -36,6 +38,10 @@ export type UseCases = {
   readonly restoreSession: ReturnType<typeof makeRestoreSession>
   readonly loadFeed: ReturnType<typeof makeLoadFeed>
   readonly resolveLocation: ReturnType<typeof makeResolveLocation>
+  /** The place a typed postal code names, or why Relay has no place there. */
+  readonly resolvePostalCode: ReturnType<typeof makeResolvePostalCode>
+  /** The code to open the feed on, before anything is on screen. */
+  readonly readPostalCode: ReturnType<typeof makeReadPostalCode>
   readonly placeNameOf: ReturnType<typeof makeCellPlaceName>
   readonly subscribeToPosts: ReturnType<typeof makeSubscribeToPosts>
   readonly createPost: ReturnType<typeof makeCreatePost>

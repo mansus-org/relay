@@ -2,7 +2,8 @@
 
 How the Python backend in [`backend/`](../backend/) is built and how to extend
 it. It replaces the old Go node; today it ships the
-skeleton and `GET /health`. Quickstart: [`backend/README.md`](../backend/README.md).
+skeleton, `GET /api/health` and `GET /api/location/postal-code/{postal_code}`.
+Quickstart: [`backend/README.md`](../backend/README.md).
 
 Everything runs through [uv](https://docs.astral.sh/uv/): `uv sync`,
 `uv run pytest`, `uv run alembic upgrade head`,
@@ -47,6 +48,13 @@ Then: add the layers to the import-linter contracts, import the ORM models in
 `migrations/env.py` (so autogenerate sees them), create a migration
 (`uv run alembic revision --autogenerate -m "posts"`), add a `get_<service>()`
 method to the `Container`, and include the router in `create_app`.
+
+A context that answers from a shipped dataset instead of a database (`location`
+does this) skips the ORM model, the migration and the unit of work: `domain` and
+`application` are built the same way, `infrastructure` loads the file, and the
+layer contracts still apply. `scripts/build_postal_codes.py` regenerates that
+dataset from its source, and the source licence goes in the data file header and
+in the OpenAPI operation.
 
 ## Dependency injection
 

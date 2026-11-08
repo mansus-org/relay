@@ -1,8 +1,9 @@
 import { act, create } from 'react-test-renderer'
+import { Platform } from 'react-native'
 
-import type { UseCases } from '../../application'
+import { makeReadPostalCode, makeResolvePostalCode, type UseCases } from '../../application'
 import { err, ok, type FeedPage, type Post } from '../../domain'
-import { makePost } from '../../testing/fakes'
+import { makeFakePostalCodeResolver, makePostalArea, makePost } from '../../testing/fakes'
 import { UseCasesProvider } from '../use-cases'
 import { useCompose } from '../use-compose'
 import { useFeed } from '../use-feed'
@@ -98,6 +99,110 @@ describe('useFeed', () => {
     expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['n2', 'n1', 'a', 'b'])
     expect(t.result.current.state.pending).toEqual([])
     expect(t.loadFeed).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useFeed on the web', () => {
+  const platform = Platform as unknown as { OS: string }
+  const native = platform.OS
+
+  beforeAll(() => void (platform.OS = 'web'))
+  afterAll(() => void (platform.OS = native))
+
+  function setup(saved: string | null = null) {
+    let code = saved
+    const store = { read: async () => code, save: async (next: string) => void (code = next) }
+    const resolver = makeFakePostalCodeResolver(
+      { '36201': makePostalArea('36201', 'Vigo', 'cell-vigo'), '15003': makePostalArea('15003', 'A Coruña', 'cell-coruna') },
+      { reason: 'not-found', message: "32999 is not in Relay's data yet." },
+    )
+    const unsubscribe = jest.fn()
+    const loadFeed = jest.fn(async ({ cursor }: { cell: string; cursor?: string }) => ok(cursor ? page(['c', 'd'], null) : page(['a', 'b'], 'next')))
+    const resolveLocation = jest.fn(async () => located)
+    const subscribeToPosts = jest.fn(() => unsubscribe)
+    const mounted = mount(useFeed, {
+      loadFeed,
+      resolveLocation,
+      subscribeToPosts,
+      resolvePostalCode: makeResolvePostalCode({ resolver, store }),
+      readPostalCode: makeReadPostalCode({ store }),
+    } as Partial<UseCases>)
+    const submit = (raw: string) => {
+      act(() => mounted.result.current.setPostalCode(raw))
+      return flush()
+    }
+    return { ...mounted, submit, loadFeed, resolveLocation, resolver, saved: () => code }
+  }
+
+  it('asks for a postal code when no place was ever chosen', async () => {
+    const t = setup()
+    await flush()
+    expect(t.result.current.state.phase).toBe('ask')
+    expect(t.resolveLocation).not.toHaveBeenCalled()
+    expect(t.loadFeed).not.toHaveBeenCalled()
+  })
+
+  it('opens on the saved code without asking', async () => {
+    const t = setup('36201')
+    await flush()
+    expect(t.result.current.state.phase).toBe('ready')
+    expect(t.result.current.state.placeName).toBe('Vigo')
+    expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['a', 'b'])
+    expect(t.resolveLocation).not.toHaveBeenCalled()
+  })
+
+  it('reads the feed of a typed code and keeps it for next time', async () => {
+    const t = setup()
+    await flush()
+    await t.submit('15003')
+    expect(t.loadFeed).toHaveBeenCalledWith({ cell: 'cell-coruna' })
+    expect(t.result.current.state.phase).toBe('ready')
+    expect(t.saved()).toBe('15003')
+  })
+
+  it('says why a code was refused and keeps asking', async () => {
+    const t = setup()
+    await flush()
+    await t.submit('32999')
+    expect(t.result.current.state.phase).toBe('ask')
+    expect(t.result.current.state.placeError).toBe("32999 is not in Relay's data yet.")
+    expect(t.loadFeed).not.toHaveBeenCalled()
+  })
+
+  it('does not ask the server for a code that is not five digits', async () => {
+    const t = setup()
+    await flush()
+    await t.submit('36')
+    expect(t.resolver.calls).toEqual([])
+    expect(t.result.current.state.placeError).toBe('Postal codes are 5 digits.')
+  })
+
+  it('keeps the last good place when a new code fails', async () => {
+    const t = setup('36201')
+    await flush()
+    await t.submit('32999')
+    expect(t.result.current.state.phase).toBe('ready')
+    expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['a', 'b'])
+    expect(t.result.current.state.placeError).toBe("32999 is not in Relay's data yet.")
+  })
+
+  it('leaves for the prompt and comes back without reloading', async () => {
+    const t = setup('36201')
+    await flush()
+    act(() => t.result.current.changePlace())
+    expect(t.result.current.state.phase).toBe('ask')
+    act(() => t.result.current.backToFeed())
+    expect(t.result.current.state.phase).toBe('ready')
+    expect(t.loadFeed).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes the saved place instead of looking for GPS', async () => {
+    const t = setup('36201')
+    await flush()
+    await act(async () => t.result.current.loadMore())
+    await act(async () => t.result.current.refresh())
+    expect(t.resolveLocation).not.toHaveBeenCalled()
+    expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['a', 'b'])
   })
 })
 
