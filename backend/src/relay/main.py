@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from relay.container import Container
+from relay.contexts.location.api import location
 from relay.shared.api import health
 from relay.shared.api.web import web_router
 from relay.shared.config import Settings
@@ -31,6 +32,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     app = FastAPI(title="Relay", version=settings.version, lifespan=lifespan)
     app.include_router(health.router, prefix="/api")
+    app.include_router(location.router, prefix="/api")
     app.include_router(health.router)  # plain /health for container probes
     if settings.web_dist_dir is not None:
         app.include_router(web_router(settings.web_dist_dir))  # last: it matches every other path
