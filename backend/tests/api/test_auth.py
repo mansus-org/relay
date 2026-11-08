@@ -1,6 +1,7 @@
 """The auth endpoints over HTTP, on a real migrated database: get in, come back, stay in."""
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -8,7 +9,10 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from relay.contexts.auth.domain.invite import Invite
+from relay.contexts.auth.domain.tokens import ACCESS_LIFETIME
+from relay.contexts.auth.infrastructure.jwt import JwtTokenBroker
 from relay.main import create_app
+from relay.shared.application import Clock
 from relay.shared.config import Settings
 
 ADA = {"username": "ada_lovelace", "password": "hunter2222", "display_name": "Ada Lovelace"}
@@ -216,6 +220,25 @@ async def test_a_call_without_a_token_we_signed_is_401(
     headers = {} if scheme is None else bearer(f"{scheme} {token}")
 
     response = await http.get("/api/auth/me", headers=headers)
+
+    assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "Bearer"
+
+
+async def test_an_access_token_that_ran_out_is_401(app: FastAPI, http: AsyncClient) -> None:
+    """Fifteen minutes is what the response promises, so it had better be true."""
+
+    class AQuarterHourBehind(Clock):
+        def now(self) -> datetime:
+            return datetime.now(UTC) - (ACCESS_LIFETIME + timedelta(minutes=1))
+
+    tokens = await register(http, app)
+    who = (await http.get("/api/auth/me", headers=bearer(tokens["access_token"]))).json()["id"]
+    # The app's own key and the same account: the only thing wrong is the clock.
+    stale = JwtTokenBroker(app.state.container.settings.secret_key, AQuarterHourBehind())
+    expired = stale.access_token_for(who, lifetime=ACCESS_LIFETIME)
+
+    response = await http.get("/api/auth/me", headers=bearer(expired))
 
     assert response.status_code == 401
     assert response.headers.get("www-authenticate") == "Bearer"
