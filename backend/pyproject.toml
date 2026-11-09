@@ -14,7 +14,7 @@ dependencies = [
     "aiosqlite",
     "asyncpg",
     "python-jose",
-    "passlib",
+    "bcrypt",
     "h3",
 ]
 
@@ -44,8 +44,10 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "ASYNC", "S", "N", "RUF"]
 
+# Tests are full of obvious fake secrets ("hunter2222") and assert on them: that is
+# the job of a test fixture, not a leaked credential.
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "S105", "S106", "S107"]
 
 [tool.ty.src]
 include = ["src", "tests"]
@@ -172,3 +174,26 @@ name = "Events application stays free of FastAPI, SQLAlchemy and H3"
 type = "forbidden"
 source_modules = ["relay.contexts.events.application"]
 forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "h3"]
+
+[[tool.importlinter.contracts]]
+name = "Auth layers point inward: api -> application -> domain <- infrastructure"
+type = "layers"
+layers = [
+    "relay.contexts.auth.api",
+    "relay.contexts.auth.infrastructure",
+    "relay.contexts.auth.application",
+    "relay.contexts.auth.domain",
+]
+exhaustive = false
+
+[[tool.importlinter.contracts]]
+name = "Auth domain stays pure: no FastAPI, SQLAlchemy, bcrypt or JWT library"
+type = "forbidden"
+source_modules = ["relay.contexts.auth.domain"]
+forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "bcrypt", "jose"]
+
+[[tool.importlinter.contracts]]
+name = "Auth application stays free of FastAPI, SQLAlchemy, bcrypt and JWT library"
+type = "forbidden"
+source_modules = ["relay.contexts.auth.application"]
+forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "bcrypt", "jose"]

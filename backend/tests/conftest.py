@@ -24,7 +24,13 @@ def database_url(tmp_path: Path) -> str:
 
 @pytest.fixture
 def test_settings(database_url: str) -> Settings:
-    return Settings(database_url=database_url, version="test")
+    return Settings(
+        database_url=database_url,
+        version="test",
+        # The suite signs tokens with the development key, which a deployment has to
+        # opt into out loud. Here it is on purpose: nothing outside this process reads it.
+        allow_insecure_secret_key=True,
+    )
 
 
 def alembic_config(database_url: str) -> Config:

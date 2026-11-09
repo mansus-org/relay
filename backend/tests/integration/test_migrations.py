@@ -3,6 +3,7 @@ from pathlib import Path
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from relay.shared.infrastructure.database import create_session_factory
@@ -22,6 +23,17 @@ async def test_upgrade_head_records_revision(migrated_engine: AsyncEngine) -> No
     async with migrated_engine.connect() as conn:
         version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
     assert version == "0005_replies_reactions"
+
+
+async def test_upgrade_creates_the_auth_tables(migrated_engine: AsyncEngine) -> None:
+    """An empty Relay still has somewhere to put its first account."""
+
+    def tables(sync_conn: Connection) -> set[str]:
+        return set(inspect(sync_conn).get_table_names())
+
+    async with migrated_engine.connect() as conn:
+        names: set[str] = await conn.run_sync(tables)
+    assert {"users", "invites", "refresh_tokens"} <= names
 
 
 async def test_unit_of_work_runs_a_query(migrated_engine: AsyncEngine) -> None:

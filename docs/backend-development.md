@@ -2,7 +2,8 @@
 
 How the Python backend in [`backend/`](../backend/) is built and how to extend
 it. It replaces the old Go node; today it ships the
-skeleton, `GET /api/health`, the `location` context (postal code to H3 cell),
+skeleton, `GET /api/health`, the `auth` context (`/api/auth/register`, `/login`,
+`/refresh`, `/me`), the `location` context (postal code to H3 cell),
 the `posts` context (say something, read a locality's feed), the
 `communities` context (groups with a locality, their feed and their joins) and
 the `events` context (what is on where and when, and saying you are going).
@@ -68,6 +69,14 @@ does this) skips the ORM model, the migration and the unit of work: `domain` and
 layer contracts still apply. `scripts/build_postal_codes.py` regenerates that
 dataset from its source, and the source licence goes in the data file header and
 in the OpenAPI operation.
+
+A context that guards traffic exposes exactly one door for the others to borrow,
+and everything else stays private. `auth` publishes
+`relay.contexts.auth.api.dependencies.CurrentUser` (a `Depends` on
+`get_current_user`): any router that needs to know who is calling asks for
+`user: CurrentUser` and gets the account or a 401, without importing anything
+else from auth. Post, community and moderation contexts will protect their
+routes the same way.
 
 ## Dependency injection
 
@@ -158,6 +167,9 @@ Read once into `Settings` (pydantic-settings) in `main.py`.
 | `WEB_DIST_DIR` | unset | Directory with the exported web build. When set, it is served at `/` with SPA fallback; unset (dev, tests) serves the API only |
 | `LOG_LEVEL` | `INFO` | Logs are one JSON object per line on stdout |
 | `TEST_DATABASE_URL` | unset | Tests only. When set, integration tests use it instead of a temp SQLite file |
+| `SECRET_KEY` | `insecure-dev-secret-change-me` | Signs the access tokens. Set it before anyone connects (`openssl rand -hex 32`): the default is published in this repository, so the API refuses to start while it is still in place |
+| `ALLOW_INSECURE_SECRET_KEY` | `0` | Start on the development key anyway, and log a warning. For a laptop, never a deployment |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | unset | Bootstrap: create this account on startup when the database has no users yet. Both must be set; the password is at least 8 characters. Unset means a fresh database stays invite-only |
 
 Migrations: `uv run alembic upgrade head` (reads `DATABASE_URL`).
 
@@ -168,7 +180,8 @@ the "Web app and combined image" section of `backend/README.md`).
 
 ```sh
 docker build -t relay --build-arg VERSION=dev .
-docker run -d --name relay -p 8000:8000 -v relay-data:/data relay
+docker run -d --name relay -p 8000:8000 -v relay-data:/data \
+  -e SECRET_KEY="$(openssl rand -hex 32)" relay
 curl localhost:8000/api/health   # migrations ran on start
 ```
 

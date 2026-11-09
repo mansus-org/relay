@@ -3,6 +3,7 @@ import type { AuthTokens, Credentials, RefreshedSession, Registration, Session }
 import type { ApiError, Community, FeedPage, FeedQuery, LatLng, LocationStatus, NewPost, Post } from './post'
 import type { Result } from './result'
 import type { CommunityDetails, CommunityError, CommunityFeedQuery, JoinRequest, NewCommunity } from './community'
+import type { Event, EventDetail, EventError, EventPage, NewEvent } from './event'
 import type { PostalArea, PostalCodeError } from './postal-code'
 
 export type AuthRepository = {
@@ -55,6 +56,18 @@ export type CommunityRepository = {
   readonly create: (community: NewCommunity) => Promise<Result<CommunityDetails, ApiError>>
   /** Posts of a community, newest first; 'forbidden' for non-members. */
   readonly feed: (query: CommunityFeedQuery) => Promise<Result<FeedPage, CommunityError>>
+}
+
+export type EventRepository = {
+  /** Events whose cell is within the query's reach, soonest first; `from` is a date, an instant or 'past'. */
+  readonly list: (query: { cell: string; radiusKm: number; from?: string }) => Promise<Result<EventPage<Event>, ApiError>>
+  /** 'not-found' when there is no such event; `userRsvped` is only ever true behind a token. */
+  readonly get: (id: string) => Promise<Result<EventDetail, EventError>>
+  readonly create: (event: NewEvent) => Promise<Result<Event, EventError>>
+  /** The new head count. 'already-going' when you were already on the list. */
+  readonly rsvp: (id: string) => Promise<Result<number, EventError>>
+  /** 'not-going' when there was no RSVP of yours to take back. */
+  readonly cancelRsvp: (id: string) => Promise<Result<void, EventError>>
 }
 
 export type PostStream = {

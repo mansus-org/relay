@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Every context's tables hang off Base.metadata, and importing them is how autogenerate
 # gets to see them. A new context with a table adds a line here.
+from relay.contexts.auth.infrastructure import models as auth_models  # noqa: F401
 from relay.contexts.communities.infrastructure import models as community_models  # noqa: F401
 from relay.contexts.events.infrastructure import models as event_models  # noqa: F401
 from relay.contexts.posts.infrastructure import models  # noqa: F401

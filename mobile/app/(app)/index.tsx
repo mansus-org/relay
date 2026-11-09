@@ -72,6 +72,11 @@ export default function Feed() {
       }
       trailing={
         <View style={styles.trailing}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Events" onPress={() => router.push('/events')} hitSlop={8} style={styles.navLink}>
+            <MonoLabel size={12} tracking={0.12} color={colors.paper}>
+              Events
+            </MonoLabel>
+          </Pressable>
           {usesPostalCode() && !bare ? (
             <Pressable accessibilityRole="button" accessibilityLabel="Change place" onPress={changePlace} hitSlop={8} style={styles.navLink}>
               <MonoLabel size={12} tracking={0.12} color={colors.paper}>

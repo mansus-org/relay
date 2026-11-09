@@ -12,7 +12,7 @@ down by being marked, not deleted, and a reply whose parent is gone is never rea
 thread is opened from its parent.
 
 Revision ID: 0005_replies_reactions
-Revises: 0004_events
+Revises: 0005_auth
 Create Date: 2026-11-09
 
 """
@@ -23,7 +23,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0005_replies_reactions"
-down_revision: str | None = "0004_events"
+down_revision: str | None = "0005_auth"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
