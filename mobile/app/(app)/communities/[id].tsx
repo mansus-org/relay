@@ -92,7 +92,7 @@ export default function CommunityScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('feed')
-  const { state, canJoin, promptOpen, joining, joinError, requestJoin, join, cancelPrompt, refresh, loadMore } = useCommunity(id)
+  const { state, canJoin, promptOpen, joining, joinError, requestJoin, join, cancelPrompt, refresh, loadMore, react } = useCommunity(id)
   const { community } = state
   const now = new Date()
 
@@ -175,7 +175,14 @@ export default function CommunityScreen() {
         key={tab}
         data={tab === 'feed' && community.isMember ? state.posts : []}
         keyExtractor={(post) => post.id}
-        renderItem={({ item }) => <FeedPostCard post={item} now={now} />}
+        renderItem={({ item }) => (
+          <FeedPostCard
+            now={now}
+            post={item}
+            onPress={() => router.push(`/post/${item.id}`)}
+            onToggleReaction={(emoji) => void react(item, emoji)}
+          />
+        )}
         ListHeaderComponent={hero}
         ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
         contentContainerStyle={styles.list}

@@ -1,4 +1,4 @@
-import type { PostStream, StreamEvent } from '../../domain'
+import { FEED_RADIUS_KM, type PostStream, type StreamEvent } from '../../domain'
 import { STREAM_PATH } from '../http/endpoints'
 import { toPost, type PostDto } from '../http/post-dto'
 import { makeSseParser, type SseMessage } from './sse-parser'
@@ -13,6 +13,8 @@ export type FetchPostStreamDeps = {
   readonly fetch: StreamFetch
   readonly getBaseUrl: () => Promise<string>
   readonly getAccessToken: () => Promise<string | null>
+  /** How far out to watch, in km; the same reach the feed reads by. */
+  readonly radiusKm?: number
   readonly retryDelaysMs?: readonly number[]
   /** Replaceable for tests. */
   readonly wait?: (ms: number, signal: AbortSignal) => Promise<void>
@@ -27,15 +29,15 @@ const defaultWait = (ms: number, signal: AbortSignal) =>
 /**
  * Reads one message of the stream; everything else on it is someone else's business.
  *
- * The stream is not served yet, and the two contracts on file for it do not agree on the name of
- * the new-post event — RELY-99 says `new_post`, the client written against RELY-34 says `post`.
- * It takes either. `post_removed` carries `{"id": …}` for a post that went away while you were
- * reading it. Anything else (pings, events we do not know) is ignored rather than guessed at.
+ * The server (RELY-91) says `event: post` for a post said in the locality, and nothing else; a
+ * line starting with `:` is a keepalive and never reaches here as a message. `post_removed`
+ * carries `{"id": …}` for a post taken down while you were reading it - RELY-99 asks for it and
+ * the feed acts on it, though the stream does not say it yet. Anything else (pings, events we do
+ * not know) is ignored rather than guessed at.
  */
 const toStreamEvent = (message: SseMessage): StreamEvent | null => {
   try {
-    if (message.event === 'post' || message.event === 'new_post')
-      return { kind: 'new_post', post: toPost(JSON.parse(message.data) as PostDto) }
+    if (message.event === 'post') return { kind: 'new_post', post: toPost(JSON.parse(message.data) as PostDto) }
     if (message.event !== 'post_removed') return null
     const { id } = JSON.parse(message.data) as { id?: unknown }
     return typeof id === 'string' ? { kind: 'post_removed', postId: id } : null
@@ -45,13 +47,17 @@ const toStreamEvent = (message: SseMessage): StreamEvent | null => {
 }
 
 /**
- * Reads GET /stream?cell=… as Server-Sent Events over fetch (EventSource cannot send the auth
- * header and does not exist on React Native). Reconnects with backoff until unsubscribed.
+ * Reads GET /api/stream?cell=…&radius=… as Server-Sent Events over fetch (EventSource cannot send
+ * the auth header and does not exist on React Native). Reconnects with backoff until unsubscribed.
+ *
+ * The radius goes on the query so the stream watches exactly as far out as the feed reads. The
+ * token goes along when there is one, though the stream is public.
  */
 export const makeFetchPostStream = ({
   fetch,
   getBaseUrl,
   getAccessToken,
+  radiusKm = FEED_RADIUS_KM,
   retryDelaysMs = [1000, 2000, 5000, 15000, 30000],
   wait = defaultWait,
 }: FetchPostStreamDeps): PostStream => ({
@@ -61,7 +67,7 @@ export const makeFetchPostStream = ({
 
     async function readOnce(): Promise<boolean> {
       const token = await getAccessToken()
-      const url = `${await getBaseUrl()}${STREAM_PATH}?cell=${encodeURIComponent(cell)}`
+      const url = `${await getBaseUrl()}${STREAM_PATH}?cell=${encodeURIComponent(cell)}&radius=${radiusKm}`
       const headers: Record<string, string> = { Accept: 'text/event-stream' }
       if (token) headers.Authorization = `Bearer ${token}`
       const response = await fetch(url, { headers, signal })

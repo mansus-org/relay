@@ -12,7 +12,7 @@ export const postReactionsPath = (id: string) => `${postPath(id)}/reactions`
 /** The emoji goes in the path, so it is encoded like any other path segment. */
 export const reactionPath = (id: string, emoji: string) => `${postReactionsPath(id)}/${encodeURIComponent(emoji)}`
 
-// Live stream. Assumed contract: the backend does not serve it yet.
+// Live stream. Served by the backend (RELY-91): one `post` event per post said near the cell.
 export const STREAM_PATH = '/stream'
 export const JOINED_COMMUNITIES_PATH = '/communities/joined'
 

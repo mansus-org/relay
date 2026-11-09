@@ -118,6 +118,10 @@ export const toggleReaction = (post: Post, emoji: string): Post => ({
   reactions: myReaction(post, emoji) ? removeReaction(post.reactions, emoji) : addReaction(post.reactions, emoji),
 })
 
+/** The same list with one post changed by `next`; the others are the very same objects. */
+export const editPost = (posts: readonly Post[], postId: string, next: (post: Post) => Post): readonly Post[] =>
+  posts.map((p) => (p.id === postId ? next(p) : p))
+
 export const charsLeft = (body: string): number => MAX_POST_LENGTH - body.length
 
 export const validatePostBody = (body: string): 'empty' | 'too-long' | null => {

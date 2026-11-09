@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { appendPage, type CommunityError, type NearbyCommunity, type Post } from '../domain'
+import { appendPage, editPost, type CommunityError, type NearbyCommunity, type Post } from '../domain'
 import { useUseCases } from './use-cases'
+import { useReaction, type EditPost } from './use-reaction'
 
 export type CommunityState = {
   /** False until the community itself has loaded (or failed to). */
@@ -46,6 +47,10 @@ export function useCommunity(id: string) {
   const loadingMore = useRef(false)
 
   const patch = useCallback((next: Partial<CommunityState>) => setState((s) => ({ ...s, ...next })), [])
+
+  // A reaction goes on the card it was tapped on, and settles on whatever the server counted.
+  const edit = useCallback<EditPost>((postId, next) => setState((s) => ({ ...s, posts: editPost(s.posts, postId, next) })), [])
+  const react = useReaction(edit)
 
   const loadFirstPage = useCallback(async () => {
     const ticket = ++generation.current
@@ -134,5 +139,5 @@ export function useCommunity(id: string) {
     setJoinError(null)
   }, [])
 
-  return { state, canJoin, promptOpen, joining, joinError, requestJoin, join, cancelPrompt, refresh, loadMore }
+  return { state, canJoin, promptOpen, joining, joinError, requestJoin, join, cancelPrompt, refresh, loadMore, react }
 }

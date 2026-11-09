@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 
 import { timeAgo, type Post } from '../../domain'
@@ -6,8 +6,17 @@ import { colors, fonts, line } from '../theme'
 import { Avatar } from './Avatar'
 import { HardShadow } from './HardShadow'
 import { MonoLabel } from './MonoLabel'
+import { ReactionRow } from './ReactionRow'
 
-type Props = { post: Post; placeName: string | null; now: Date }
+type Props = {
+  post: Post
+  placeName: string | null
+  now: Date
+  /** Opens the thread this post started. Without it the card is not pressable. */
+  onPress?: () => void
+  /** Taps one of this post's reactions on, or takes the reader's own back off. */
+  onToggleReaction: (emoji: string) => void
+}
 
 function ChatIcon() {
   return (
@@ -18,14 +27,15 @@ function ChatIcon() {
 }
 
 /** Feed post: author, "time · place", body, then a footer with reactions and the reply count. */
-export function PostCard({ post, placeName, now }: Props) {
+export function PostCard({ post, placeName, now, onPress, onToggleReaction }: Props) {
   const when = [timeAgo(post.createdAt, now), placeName].filter(Boolean).join(' · ')
   const replies = post.replyCount
-  return (
+  const card = (
     <HardShadow>
       <View
         style={styles.card}
         accessible
+        accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={`${post.author.name}, ${when}. ${post.body}. ${replies} ${replies === 1 ? 'reply' : 'replies'}`}
       >
         <View style={styles.head}>
@@ -40,30 +50,26 @@ export function PostCard({ post, placeName, now }: Props) {
           </View>
         </View>
         <Text style={styles.body}>{post.body}</Text>
-        {post.reactions.length > 0 || replies > 0 ? (
-          <View style={styles.foot}>
-            <View style={styles.reactions}>
-              {post.reactions.map((r) => (
-                <View key={r.emoji} style={[styles.react, r.mine && styles.mine]}>
-                  <Text style={styles.emoji}>{r.emoji}</Text>
-                  <MonoLabel size={13} tracking={0.02} color={r.mine ? colors.onRed : colors.ink}>
-                    {String(r.count)}
-                  </MonoLabel>
-                </View>
-              ))}
+        <View style={styles.foot}>
+          <ReactionRow onToggle={onToggleReaction} reactions={post.reactions} style={styles.reactions} />
+          {replies > 0 ? (
+            <View style={styles.replies}>
+              <ChatIcon />
+              <MonoLabel size={13} tracking={0.02}>
+                {String(replies)}
+              </MonoLabel>
             </View>
-            {replies > 0 ? (
-              <View style={styles.replies}>
-                <ChatIcon />
-                <MonoLabel size={13} tracking={0.02}>
-                  {String(replies)}
-                </MonoLabel>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
+          ) : null}
+        </View>
       </View>
     </HardShadow>
+  )
+  return onPress ? (
+    <Pressable accessibilityRole="button" onPress={onPress}>
+      {card}
+    </Pressable>
+  ) : (
+    card
   )
 }
 
@@ -85,8 +91,5 @@ const styles = StyleSheet.create({
     borderTopColor: colors.ink,
   },
   reactions: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
-  react: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 10, borderWidth: line.regular, borderColor: colors.ink, backgroundColor: colors.paper },
-  mine: { backgroundColor: colors.red },
-  emoji: { fontSize: 14 },
   replies: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6, height: 44 },
 })

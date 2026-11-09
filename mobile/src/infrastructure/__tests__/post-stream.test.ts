@@ -55,14 +55,14 @@ describe('fetch post stream', () => {
     await new Promise((r) => setTimeout(r, 20))
     expect(received).toEqual(['p1'])
     expect(calls[0]).toEqual({
-      url: 'https://x/api/stream?cell=cell%2F1',
+      url: 'https://x/api/stream?cell=cell%2F1&radius=10',
       headers: { Accept: 'text/event-stream', Authorization: 'Bearer tok' },
     })
     expect(calls).toHaveLength(2)
     expect(waits.length).toBeGreaterThan(0)
   })
 
-  it('reports a removal and a new post, and ignores pings and bodies it cannot read', async () => {
+  it('reports a removal and a new post, and ignores pings, names it does not know and bodies it cannot read', async () => {
     let calls = 0
     let unsubscribe = () => {}
     const received: string[] = []
@@ -71,8 +71,9 @@ describe('fetch post stream', () => {
       if (calls === 1) {
         return streamOf([
           `event: post_removed\ndata: ${JSON.stringify({ id: 'p9' })}\n\n`,
-          `event: new_post\ndata: ${JSON.stringify(makePostDto('p3'))}\n\n`,
+          `event: post\ndata: ${JSON.stringify(makePostDto('p3'))}\n\n`,
           'event: ping\ndata: 1\n\n',
+          `event: new_post\ndata: ${JSON.stringify(makePostDto('p4'))}\n\n`,
           'event: post\ndata: not json\n\n',
         ])
       }
