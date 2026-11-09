@@ -17,6 +17,42 @@ persistence:
 healthCheck:
   path: /api/health
 
+# SECRET_KEY signs the access tokens. The API refuses to start while it is still the development
+# default published in this repo (backend/src/relay/shared/config.py), so it has to come from the
+# cluster. Every key in the secret below becomes an env var.
+#
+# PENDING: these are placeholders, not ciphertext. Sealing needs the cluster's sealed-secrets
+# controller certificate, which needs kubectl. Until a person replaces both blocks with real
+# sealed values, the preview cannot start and merging this takes relay.mansus.org down: no
+# SECRET_KEY, so the guard fires. How-to: k3s-hetzner-gitops docs/app-platform/new-app.md #6.
+#
+# Production, sealed for the "relay" namespace:
+#   kubectl create secret generic relay-secrets -n relay \
+#     --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
+#     --dry-run=client -o yaml \
+#   | kubeseal --controller-name sealed-secrets-controller --controller-namespace kube-system \
+#       --format yaml | yq '.spec.encryptedData'
+sealedSecrets:
+  - name: relay-secrets
+    encryptedData:
+      SECRET_KEY: REPLACE-ME-SEALED-FOR-THE-RELAY-NAMESPACE
+
+# Previews run in relay-pr-N and cannot decrypt the block above, so they get their own copy,
+# sealed --scope cluster-wide with a throwaway key (docs/app-platform/previews.md).
+#   kubectl create secret generic relay-secrets -n placeholder \
+#     --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
+#     --dry-run=client -o yaml \
+#   | kubeseal --controller-name sealed-secrets-controller --controller-namespace kube-system \
+#       --scope cluster-wide --format yaml | yq '.spec.encryptedData'
+preview:
+  sealedSecrets:
+    - name: relay-secrets
+      scope: cluster-wide
+      encryptedData:
+        SECRET_KEY: REPLACE-ME-SEALED-FOR-ANY-NAMESPACE
+
+envFromSecrets: [relay-secrets]
+
 resources:
   requests: { cpu: 50m, memory: 128Mi }
   limits: { cpu: "1", memory: 512Mi }
