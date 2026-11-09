@@ -90,6 +90,37 @@ async def test_a_reply_keeps_the_post_it_answers() -> None:
     assert [post.body for post in await uow.posts.replies_to(root.id)] == ["Back Monday."]
 
 
+async def test_a_reply_is_said_where_the_post_it_answers_was() -> None:
+    """Nobody has to say where they are twice: a reply lands in its parent's locality."""
+    community = uuid4()
+    root = a_post("Is the bakery closing for good?", community_id=community)
+    uow = FakePostsUnitOfWork([root])
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells())
+
+    reply = await use_case.execute(author_id=uuid4(), body="Back Monday.", parent_id=root.id)
+
+    assert reply.location_cell == "here"
+    assert reply.community_id == community
+
+
+async def test_a_reply_into_another_community_is_refused() -> None:
+    """A thread lives in one community; an answer cannot be filed into another."""
+    root = a_post("Is the bakery closing for good?", community_id=uuid4())
+    uow = FakePostsUnitOfWork([root])
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells())
+
+    with pytest.raises(ValidationError, match="community its parent is in"):
+        await use_case.execute(
+            author_id=uuid4(),
+            body="Over here instead.",
+            parent_id=root.id,
+            community_id=uuid4(),
+        )
+
+    assert uow.committed is False
+    assert await uow.posts.replies_to(root.id) == []
+
+
 async def test_a_reply_to_a_post_that_was_never_said_is_refused() -> None:
     """An answer to nothing is filed where no thread will ever show it, so it is not filed."""
     uow = FakePostsUnitOfWork()

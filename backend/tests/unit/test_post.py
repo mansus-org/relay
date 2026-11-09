@@ -76,3 +76,59 @@ def test_a_reply_is_only_a_post_that_answers_another() -> None:
 
 def test_a_post_that_answers_nothing_is_not_a_reply() -> None:
     assert a_post().parent_id is None
+
+
+def test_a_reply_is_said_where_the_post_it_answers_was() -> None:
+    """A reply does not have to say where it is: it belongs where its parent does."""
+    community = uuid4()
+    root = a_post(cell="there", community_id=community)
+
+    reply = Post.reply_to(
+        root, author_id=uuid4(), body="Back Monday.", created_at=datetime.now(UTC)
+    )
+
+    assert reply.parent_id == root.id
+    assert reply.location_cell == "there"
+    assert reply.community_id == community
+
+
+def test_a_reply_said_somewhere_else_is_still_the_same_thread() -> None:
+    """Someone answering from a different street still answers the same post."""
+    root = a_post(cell="there")
+
+    reply = Post.reply_to(
+        root,
+        author_id=uuid4(),
+        body="I am in Vigo reading this.",
+        created_at=datetime.now(UTC),
+        location_cell="here",
+    )
+
+    assert reply.location_cell == "here"
+
+
+def test_a_reply_cannot_move_the_thread_to_another_community() -> None:
+    """An answer in another community is a different conversation, not a reply."""
+    root = a_post(community_id=uuid4())
+
+    with pytest.raises(ValidationError, match="community its parent is in"):
+        Post.reply_to(
+            root,
+            author_id=uuid4(),
+            body="Over here instead.",
+            created_at=datetime.now(UTC),
+            community_id=uuid4(),
+        )
+
+
+def test_a_reply_cannot_join_a_community_its_parent_never_joined() -> None:
+    root = a_post(community_id=None)
+
+    with pytest.raises(ValidationError, match="community its parent is in"):
+        Post.reply_to(
+            root,
+            author_id=uuid4(),
+            body="Is this a community post now?",
+            created_at=datetime.now(UTC),
+            community_id=uuid4(),
+        )

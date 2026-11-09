@@ -25,21 +25,33 @@ class CreatePost:
         community_id: UUID | None = None,
         parent_id: UUID | None = None,
     ) -> Post:
-        post = Post.write(
-            author_id=author_id,
-            body=body,
-            created_at=self._clock.now(),
-            location_cell=self._filed_under(location_cell),
-            community_id=community_id,
-            parent_id=parent_id,
-        )
+        said_in = self._filed_under(location_cell)
         async with self._uow:
+            parent = None
             if parent_id is not None:
                 # A reply to a post that is not there answers nothing, and no thread will
                 # ever show it, so it is refused here rather than filed as an orphan.
                 parent = await self._uow.posts.get(parent_id)
                 if parent is None or not parent.is_up:
                     raise PostNotFoundError(f"No post {parent_id} to reply to.")
+            if parent is not None:
+                post = Post.reply_to(
+                    parent,
+                    author_id=author_id,
+                    body=body,
+                    created_at=self._clock.now(),
+                    location_cell=said_in,
+                    community_id=community_id,
+                )
+            else:
+                post = Post.write(
+                    author_id=author_id,
+                    body=body,
+                    created_at=self._clock.now(),
+                    location_cell=said_in,
+                    community_id=community_id,
+                    parent_id=parent_id,
+                )
             await self._uow.posts.add(post)
             await self._uow.commit()
         return post

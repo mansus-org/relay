@@ -123,6 +123,19 @@ async def test_a_removed_post_is_in_no_feed(uow: SqlAlchemyPostsUnitOfWork) -> N
     assert [post.body for post in found] == ["here"]
 
 
+async def test_an_answer_is_in_no_feed_although_it_shares_its_locality(
+    uow: SqlAlchemyPostsUnitOfWork,
+) -> None:
+    """A reply is filed in its parent's cell so a thread stays in one place; the feed
+    still shows the post, and not everything said under it."""
+    root = said("Is the bakery closing for good?")
+    await seed(uow, root, said("Back Monday.", parent=root.id, minutes=1))
+
+    found = await uow.posts.page_neighbouring(cells=[VIGO], before=None, limit=20)
+
+    assert [post.body for post in found] == ["Is the bakery closing for good?"]
+
+
 async def test_the_newest_post_comes_first_and_a_page_stops_where_it_should(
     uow: SqlAlchemyPostsUnitOfWork,
 ) -> None:

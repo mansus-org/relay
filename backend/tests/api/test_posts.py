@@ -339,10 +339,12 @@ async def test_the_post_shape_is_the_one_the_mobile_client_parses(api: AsyncClie
 # Replying.
 
 
-async def reply_to(http: AsyncClient, post_id: str, body: str, *, who: UUID = AUTHOR) -> dict:
+async def reply_to(
+    http: AsyncClient, post_id: str, body: str, *, who: UUID = AUTHOR, **fields: object
+) -> dict:
     """Say something under a post, and hand back the post that was made."""
     response = await http.post(
-        "/api/posts", json={"body": body, "parent_id": post_id}, headers=as_(who)
+        "/api/posts", json={"body": body, "parent_id": post_id, **fields}, headers=as_(who)
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -364,6 +366,40 @@ async def test_a_reply_lands_under_the_post_it_answers(api: AsyncClient) -> None
     assert [post["body"] for post in await thread_of(api, root["id"])] == [
         "They are on holiday, back Monday."
     ]
+
+
+async def test_a_reply_is_said_where_the_post_it_answers_was(api: AsyncClient) -> None:
+    """Nobody says where they are twice: a reply lands in its parent's locality."""
+    root = await say(api, "Is the bakery closing for good?", location_cell=VIGO)
+
+    reply = await reply_to(api, root["id"], "Back Monday.")
+
+    assert reply["location_cell"] == VIGO
+
+
+async def test_a_reply_said_elsewhere_is_still_under_its_own_post(api: AsyncClient) -> None:
+    """Answering from another town does not move the answer to that town's thread."""
+    root = await say(api, "Is the bakery closing for good?", location_cell=VIGO)
+
+    reply = await reply_to(api, root["id"], "Reading this from A Coruna.", location_cell=A_CORUNA)
+
+    assert reply["location_cell"] == A_CORUNA
+    assert [post["body"] for post in await thread_of(api, root["id"])] == [
+        "Reading this from A Coruna."
+    ]
+
+
+async def test_a_reply_cannot_move_a_thread_into_another_community(api: AsyncClient) -> None:
+    root = await say(api, "Meeting Tuesday?", community_id=str(uuid4()))
+
+    response = await api.post(
+        "/api/posts",
+        json={"body": "Over here instead.", "parent_id": root["id"], "community_id": str(uuid4())},
+        headers=as_(),
+    )
+
+    assert response.status_code == 400
+    assert await thread_of(api, root["id"]) == []
 
 
 async def test_the_replies_under_a_post_are_oldest_first(api: AsyncClient) -> None:
@@ -413,13 +449,13 @@ async def test_a_reply_carries_its_own_replies_and_reactions(api: AsyncClient) -
     assert reply["reactions"] == [{"emoji": "❤️", "count": 1, "mine": False}]
 
 
-async def test_a_reply_says_nothing_about_where_it_was_said(api: AsyncClient) -> None:
-    """A reply belongs to its post, not to a locality: the feed stays a feed of roots."""
+async def test_the_locality_feed_is_a_feed_of_posts_not_of_answers(api: AsyncClient) -> None:
+    """An answer is read under the post it answers, not as a card of its own."""
     root = await say(api, "Is the bakery closing for good?", location_cell=VIGO)
     await reply_to(api, root["id"], "Back Monday.")
 
     posts = await api.get("/api/feed", params={"cell": VIGO})
-    assert posts.json()["posts"][0]["id"] == root["id"]
+    assert [post["id"] for post in posts.json()["posts"]] == [root["id"]]
 
 
 async def test_a_reply_to_a_post_that_was_never_said_is_refused(api: AsyncClient) -> None:

@@ -25,6 +25,7 @@ def a_post(
     at: datetime = datetime(2026, 1, 1, 12, tzinfo=UTC),
     author_id: UUID | None = None,
     parent_id: UUID | None = None,
+    community_id: UUID | None = None,
 ) -> Post:
     """A post a test can name in one line."""
     return Post.write(
@@ -32,6 +33,7 @@ def a_post(
         body=text,
         created_at=at,
         location_cell=cell,
+        community_id=community_id,
         parent_id=parent_id,
     )
 

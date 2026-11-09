@@ -19,13 +19,16 @@ def feed_statement(cells: list[str], before: datetime | None, limit: int) -> Sel
     """One page of a locality feed, newest first.
 
     `IN` leaves out the posts that named no locality at all, which is what keeps them
-    out of every locality feed. Built here rather than inline so the query the
+    out of every locality feed. Answers are left out too: a reply carries its parent's
+    locality so a thread stays in one place, but the feed is a list of things people
+    said, not of everything said. Built here rather than inline so the query the
     repository runs is the query a test can put under EXPLAIN.
     """
     statement = (
         select(PostModel)
         .where(PostModel.location_cell.in_(cells))
         .where(PostModel.moderation_status != ModerationStatus.REMOVED.value)
+        .where(PostModel.parent_id.is_(None))
         .order_by(PostModel.created_at.desc())
         .limit(limit)
     )

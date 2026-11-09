@@ -72,6 +72,36 @@ class Post(Entity):
             parent_id=parent_id,
         )
 
+    @classmethod
+    def reply_to(
+        cls,
+        parent: "Post",
+        *,
+        author_id: UUID,
+        body: str,
+        created_at: datetime,
+        location_cell: str | None = None,
+        community_id: UUID | None = None,
+    ) -> "Post":
+        """Answer a post.
+
+        A reply belongs where the post it answers does, so it inherits that post's
+        community and locality unless the writer said otherwise. A community is not
+        said otherwise: an answer that lands in another community is a different
+        conversation, and the thread it answers would never show it.
+        """
+        belonging_to = parent.community_id if community_id is None else community_id
+        if belonging_to != parent.community_id:
+            raise ValidationError("A reply belongs to the community its parent is in.")
+        return cls.write(
+            author_id=author_id,
+            body=body,
+            created_at=created_at,
+            location_cell=location_cell or parent.location_cell,
+            community_id=belonging_to,
+            parent_id=parent.id,
+        )
+
     @property
     def is_up(self) -> bool:
         """Whether moderation has left the post standing.

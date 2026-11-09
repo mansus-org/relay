@@ -228,12 +228,15 @@ def get_remove_reaction_use_case(
         "Saves a post and returns it. At most 500 characters of text. "
         "`location_cell` has to be a real resolution-8 H3 cell, because a post filed "
         "anywhere else is a post no locality feed will ever read. "
-        "`parent_id` makes it a reply to that post instead of a post of its own."
+        "`parent_id` makes it a reply to that post instead of a post of its own: it "
+        "belongs to that post's community, and unless it says otherwise it is said in "
+        "that post's locality too. "
     ),
     responses={
         400: {
             "description": f"The body was empty or over {MAX_BODY_LENGTH} characters, "
-            "or `location_cell` was not a resolution-8 H3 cell."
+            "or `location_cell` was not a resolution-8 H3 cell, "
+            "or `community_id` was not the community the parent is in."
         },
         401: {"description": "No bearer token to write as."},
         404: {"description": "No post with that `parent_id` to reply to."},
