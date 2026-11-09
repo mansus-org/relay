@@ -265,7 +265,11 @@ class Container:
         return GetEvent(uow=self.events_unit_of_work())
 
     def get_community_events(self) -> GetCommunityEvents:
-        return GetCommunityEvents(uow=self.events_unit_of_work(), clock=self.clock)
+        return GetCommunityEvents(
+            uow=self.events_unit_of_work(),
+            neighbourhood=self.events_neighbourhood,
+            clock=self.clock,
+        )
 
     def get_rsvp_event(self) -> RsvpEvent:
         return RsvpEvent(uow=self.events_unit_of_work(), clock=self.clock)

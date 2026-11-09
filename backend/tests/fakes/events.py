@@ -72,10 +72,15 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
         return self._page(lambda event: event.location_cell in wanted, start, limit)
 
     async def page_for_community(
-        self, *, community_id: UUID, start: ListingStart, limit: int
+        self, *, community_id: UUID, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
-        """The same cut again, over who the plan belongs to instead of where it is."""
-        return self._page(lambda event: event.community_id == community_id, start, limit)
+        """The same two cuts the table makes: whose list it is, and the reader's ring."""
+        wanted = set(cells)
+        return self._page(
+            lambda event: event.community_id == community_id and event.location_cell in wanted,
+            start,
+            limit,
+        )
 
     def _page(
         self, belongs: Callable[[Event], bool], start: ListingStart, limit: int

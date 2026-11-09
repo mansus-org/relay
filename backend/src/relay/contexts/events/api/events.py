@@ -334,20 +334,26 @@ async def read_events(
     description=(
         "The events its members filed under it, starting at or after `from` — the same "
         "`from` as the nearby list takes, so `past` reads backwards through what the "
-        "community has already been to and `next_from` pages through the rest. Nothing "
-        "here is cut by distance: a community is people rather than a place, so a plan "
-        "with no venue and no cell on it is on this list and on nobody else's. Public "
-        "like every other read of an event; being a member is what lets you put one on "
-        "the list, not what lets you read it."
+        "community has already been to and `next_from` pages through the rest. The same "
+        "ring applies here as everywhere else: only events whose cell is within `radius` "
+        "km of `cell` are on the page, because a community being people does not make "
+        "its plans visible an hour away, and one that named no cell is on no list. "
+        "Public like every other read of an event; being a member is what lets you put "
+        "one on the list, not what lets you read it."
     ),
     responses={
-        400: {"description": "`from` was not a date, an instant, or `past`."},
+        400: {"description": "The cell, the radius, or `from` was not usable."},
         404: {"description": "No community with that id."},
     },
 )
 async def read_community_events(
     community_id: UUID,
+    cell: Annotated[str, Query(description="Your current H3 resolution-8 cell.")],
     use_case: Annotated[GetCommunityEvents, Depends(get_community_events_use_case)],
+    radius: Annotated[
+        float,
+        Query(description="How far out to read, in km: between 0 and 25."),
+    ] = DEFAULT_RADIUS_KM,
     from_: Annotated[
         str | None,
         Query(
@@ -358,8 +364,10 @@ async def read_community_events(
     ] = None,
 ) -> EventListResponse:
     try:
-        page = await use_case.execute(community_id=community_id, from_=from_)
-    except ValidationError as error:
+        page = await use_case.execute(
+            community_id=community_id, cell=cell, radius_km=radius, from_=from_
+        )
+    except (ValidationError, CellError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except CommunityNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

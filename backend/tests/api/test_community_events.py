@@ -60,7 +60,10 @@ async def plan(http: AsyncClient, title: str, who: UUID = FOUNDER, **fields: obj
 
 
 async def on(http: AsyncClient, community_id: str, **params: str) -> dict:
-    response = await http.get(f"/api/communities/{community_id}/events", params=params)
+    """Read a community's list from Vigo, unless the test says otherwise."""
+    response = await http.get(
+        f"/api/communities/{community_id}/events", params={"cell": VIGO, **params}
+    )
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -83,7 +86,7 @@ async def test_the_event_appears_on_that_communitys_list(api: AsyncClient) -> No
     club = await found(api)
     await joined(api, club["id"], FOUNDER)
 
-    await plan(api, "Book swap", community_id=club["id"], starts_at=at(24))
+    await plan(api, "Book swap", community_id=club["id"], location_cell=VIGO, starts_at=at(24))
     page = await on(api, club["id"])
 
     assert [event["title"] for event in page["events"]] == ["Book swap"]
@@ -134,9 +137,9 @@ async def test_the_list_is_public(api: AsyncClient) -> None:
     """No token, and the community's plans still show: an event is a public thing."""
     club = await found(api)
     await joined(api, club["id"], FOUNDER)
-    await plan(api, "Book swap", community_id=club["id"], starts_at=at(24))
+    await plan(api, "Book swap", community_id=club["id"], location_cell=VIGO, starts_at=at(24))
 
-    response = await api.get(f"/api/communities/{club['id']}/events")
+    response = await api.get(f"/api/communities/{club['id']}/events", params={"cell": VIGO})
 
     assert response.status_code == 200
     assert [event["title"] for event in response.json()["events"]] == ["Book swap"]
@@ -148,8 +151,8 @@ async def test_one_communitys_list_does_not_show_anothers(api: AsyncClient) -> N
     await joined(api, club["id"], FOUNDER)
     await joined(api, choir["id"], FOUNDER)
 
-    await plan(api, "Book swap", community_id=club["id"], starts_at=at(24))
-    await plan(api, "Rehearsal", community_id=choir["id"], starts_at=at(48))
+    await plan(api, "Book swap", community_id=club["id"], location_cell=VIGO, starts_at=at(24))
+    await plan(api, "Rehearsal", community_id=choir["id"], location_cell=VIGO, starts_at=at(48))
 
     assert [event["title"] for event in (await on(api, club["id"]))["events"]] == ["Book swap"]
     assert [event["title"] for event in (await on(api, choir["id"]))["events"]] == ["Rehearsal"]
@@ -159,8 +162,8 @@ async def test_the_next_event_is_first(api: AsyncClient) -> None:
     club = await found(api)
     await joined(api, club["id"], FOUNDER)
 
-    await plan(api, "Later", community_id=club["id"], starts_at=at(48))
-    await plan(api, "Sooner", community_id=club["id"], starts_at=at(24))
+    await plan(api, "Later", community_id=club["id"], location_cell=VIGO, starts_at=at(48))
+    await plan(api, "Sooner", community_id=club["id"], location_cell=VIGO, starts_at=at(24))
     page = await on(api, club["id"])
 
     assert [event["title"] for event in page["events"]] == ["Sooner", "Later"]
@@ -170,8 +173,8 @@ async def test_an_event_that_already_started_is_not_on_the_list(api: AsyncClient
     club = await found(api)
     await joined(api, club["id"], FOUNDER)
 
-    await plan(api, "Last week", community_id=club["id"], starts_at=at(-24 * 7))
-    await plan(api, "Tomorrow", community_id=club["id"], starts_at=at(24))
+    await plan(api, "Last week", community_id=club["id"], location_cell=VIGO, starts_at=at(-24 * 7))
+    await plan(api, "Tomorrow", community_id=club["id"], location_cell=VIGO, starts_at=at(24))
 
     page = await on(api, club["id"])
     assert [event["title"] for event in page["events"]] == ["Tomorrow"]
@@ -180,23 +183,41 @@ async def test_an_event_that_already_started_is_not_on_the_list(api: AsyncClient
     assert [event["title"] for event in past["events"]] == ["Last week"]
 
 
-async def test_a_communitys_list_is_not_cut_by_distance(api: AsyncClient) -> None:
-    """The point of the list: a plan with no venue on it reaches every member, wherever."""
+async def test_the_ring_applies_to_a_communitys_list_like_any_other(api: AsyncClient) -> None:
+    """Membership is what lets you file an event, never what lets you see one.
+
+    A Coruña and Vigo are ~170 km apart, so the member standing in Vigo does not get
+    told about the ride A Coruña is throwing, however much they are in the club that is
+    throwing it — and the plan with no place on it is on no list at all, because an event
+    is visible where its cell is.
+    """
     club = await found(api)
     await joined(api, club["id"], FOUNDER)
 
-    await plan(api, "No venue yet", community_id=club["id"], starts_at=at(24))
+    await plan(api, "Down the road", community_id=club["id"], location_cell=VIGO, starts_at=at(24))
+    await plan(
+        api, "Up the coast", community_id=club["id"], location_cell=A_CORUNA, starts_at=at(25)
+    )
+    await plan(api, "No venue yet", community_id=club["id"], starts_at=at(26))
 
-    assert [event["title"] for event in (await on(api, club["id"]))["events"]] == ["No venue yet"]
-    nearby = await api.get("/api/events", params={"cell": VIGO})
-    assert [event["title"] for event in nearby.json()["events"]] == []
+    from_vigo = await on(api, club["id"])
+    assert [event["title"] for event in from_vigo["events"]] == ["Down the road"]
+
+    from_coruna = await on(api, club["id"], cell=A_CORUNA)
+    assert [event["title"] for event in from_coruna["events"]] == ["Up the coast"]
 
 
 async def test_the_pages_walk_without_gaps_or_repeats(api: AsyncClient) -> None:
     club = await found(api)
     await joined(api, club["id"], FOUNDER)
     for index in range(25):
-        await plan(api, f"event {index}", community_id=club["id"], starts_at=at(index + 1))
+        await plan(
+            api,
+            f"event {index}",
+            community_id=club["id"],
+            location_cell=VIGO,
+            starts_at=at(index + 1),
+        )
 
     first = await on(api, club["id"])
     assert len(first["events"]) == 20
@@ -211,7 +232,7 @@ async def test_the_pages_walk_without_gaps_or_repeats(api: AsyncClient) -> None:
 
 async def test_a_community_that_does_not_exist_has_no_list(api: AsyncClient) -> None:
     """Not an empty list: a community that was never founded is a different answer."""
-    response = await api.get(f"/api/communities/{uuid4()}/events")
+    response = await api.get(f"/api/communities/{uuid4()}/events", params={"cell": VIGO})
 
     assert response.status_code == 404
 
@@ -220,7 +241,20 @@ async def test_a_start_that_is_not_a_start_is_refused(api: AsyncClient) -> None:
     club = await found(api)
 
     response = await api.get(
-        f"/api/communities/{club['id']}/events", params={"from": "whenever the rain stops"}
+        f"/api/communities/{club['id']}/events",
+        params={"cell": VIGO, "from": "whenever the rain stops"},
     )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("cell", ["", "not-a-cell"])
+async def test_the_community_list_refuses_a_cell_it_cannot_read(
+    api: AsyncClient, cell: str
+) -> None:
+    """A cell nobody can resolve is a bad question here too, not an empty page."""
+    club = await found(api)
+
+    response = await api.get(f"/api/communities/{club['id']}/events", params={"cell": cell})
 
     assert response.status_code == 400

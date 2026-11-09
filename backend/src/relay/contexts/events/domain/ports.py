@@ -27,13 +27,14 @@ class EventRepository(Repository[Event, UUID]):
 
     @abstractmethod
     async def page_for_community(
-        self, *, community_id: UUID, start: ListingStart, limit: int
+        self, *, community_id: UUID, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
         """The same pages, read out of one community instead of one neighbourhood.
 
-        A community is people rather than a place, so nothing here is cut by cells: an
-        event filed under it is on its list whether or not anyone has said where it
-        happens, and an event filed under it *and* at a cell is on both lists.
+        The ring is the same rule here as it is on every other list: being a member is
+        what lets you put an event on a community's list, never what lets you see one,
+        so a plan an hour away stays out of sight from the member who is an hour away
+        from it. An event that named no cell is in none of them, so it is on neither list.
         """
 
 

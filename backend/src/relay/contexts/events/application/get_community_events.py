@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from relay.contexts.events.application.unit_of_work import EventsUnitOfWork
+from relay.contexts.events.domain.cells import DEFAULT_RADIUS_KM
 from relay.contexts.events.domain.community import CommunityNotFoundError
 from relay.contexts.events.domain.listing import (
     EventDetails,
@@ -10,31 +11,43 @@ from relay.contexts.events.domain.listing import (
     ListingStart,
     marker_after,
 )
+from relay.contexts.events.domain.ports import CellNeighbourhood
 from relay.shared.application import Clock
 
 
 class GetCommunityEvents:
     """Reads one community's events a page at a time, in the direction `from` asked for.
 
-    The filter is the community and nothing else. A community is people rather than a
-    place, so its list is not cut by a ring the way a locality's is: whatever was filed
-    under it is on it, including the plans whose place nobody has settled yet. Reading it
-    is public the way every read of an event is public — being a member is what lets you
-    put something on the list, not what lets you read it.
+    Two filters, and they do different jobs. The community says whose list this is. The
+    ring says what the reader is allowed to see, and it applies here the same way it
+    applies everywhere else: being a member is what lets you put an event on this list,
+    never what lets you read one, so a plan your community filed an hour away is not on
+    your page. Reading the list is public the way every read of an event is public.
     """
 
     #: How many to hand back at once. The same page a person scrolls through.
     PAGE_SIZE = 20
 
-    def __init__(self, uow: EventsUnitOfWork, clock: Clock) -> None:
+    def __init__(
+        self, uow: EventsUnitOfWork, neighbourhood: CellNeighbourhood, clock: Clock
+    ) -> None:
         self._uow = uow
+        self._neighbourhood = neighbourhood
         self._clock = clock
 
-    async def execute(self, *, community_id: UUID, from_: str | None = None) -> EventListingPage:
+    async def execute(
+        self,
+        *,
+        community_id: UUID,
+        cell: str,
+        radius_km: float = DEFAULT_RADIUS_KM,
+        from_: str | None = None,
+    ) -> EventListingPage:
+        cells = self._neighbourhood.visible_from(cell, radius_km)
         start = ListingStart.read(from_, now=self._clock.now())
         async with self._uow:
             found = await self._uow.events.page_for_community(
-                community_id=community_id, start=start, limit=self.PAGE_SIZE + 1
+                community_id=community_id, cells=cells, start=start, limit=self.PAGE_SIZE + 1
             )
             # One extra read tells us whether there is more without a second query.
             more = len(found) > self.PAGE_SIZE

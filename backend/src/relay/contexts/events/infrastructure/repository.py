@@ -72,14 +72,25 @@ def listing_statement(cells: list[str], start: ListingStart, limit: int) -> Sele
     return page_of(select(EventModel).where(EventModel.location_cell.in_(cells)), start, limit)
 
 
-def community_listing_statement(community_id: UUID, start: ListingStart, limit: int) -> Select:
+def community_listing_statement(
+    community_id: UUID, cells: list[str], start: ListingStart, limit: int
+) -> Select:
     """One page of one community's list, in the direction it was asked to be read.
 
-    The same cut as a locality's page, over the other column: nothing here is filtered by
-    cells, because a community is people and not a place. The plan a community has with no
-    venue and no cell on it is still on that community's list, and on nobody else's.
+    Two cuts, one on each column: the community it was filed under, and the ring the
+    reader is standing in. Membership is what lets a person put something on a
+    community's list and never what lets them see one, so a plan outside the ring is
+    invisible to its own members. An event with no cell is in no ring, so it is on
+    neither list until somebody says where it happens.
     """
-    return page_of(select(EventModel).where(EventModel.community_id == community_id), start, limit)
+    return page_of(
+        select(EventModel).where(
+            EventModel.community_id == community_id,
+            EventModel.location_cell.in_(cells),
+        ),
+        start,
+        limit,
+    )
 
 
 class SqlAlchemyEventRepository(EventRepository):
@@ -103,9 +114,9 @@ class SqlAlchemyEventRepository(EventRepository):
         return [row.to_domain() for row in rows]
 
     async def page_for_community(
-        self, *, community_id: UUID, start: ListingStart, limit: int
+        self, *, community_id: UUID, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
-        statement = community_listing_statement(community_id, start, limit)
+        statement = community_listing_statement(community_id, list(cells), start, limit)
         rows = (await self._session.execute(statement)).scalars()
         return [row.to_domain() for row in rows]
 

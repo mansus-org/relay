@@ -10,9 +10,18 @@ from relay.contexts.events.domain.community import CommunityNotFoundError
 from relay.contexts.events.domain.event import Event
 from relay.contexts.events.domain.listing import UnknownPageError
 from tests.fakes.clock import FixedClock
-from tests.fakes.events import FakeEventsUnitOfWork, InMemoryCommunities, an_event, going_to
+from tests.fakes.events import (
+    FakeEventsUnitOfWork,
+    FixedNeighbourhood,
+    InMemoryCommunities,
+    an_event,
+    going_to,
+)
 
 NOW = datetime(2026, 3, 4, 12, tzinfo=UTC)
+# The reader stands in "here"; "far" is a cell nobody nearby can see. Same ring as every
+# other list, because a community being people does not lift it.
+NEIGHBOURHOOD = FixedNeighbourhood({"here": {"here"}, "far": {"far"}})
 BOOK_CLUB = UUID("11111111-1111-1111-1111-111111111111")
 CHOIR = UUID("22222222-2222-2222-2222-222222222222")
 
@@ -34,8 +43,8 @@ def planned(*titles: str, community_id: UUID = BOOK_CLUB, from_: int = 1) -> lis
 
 
 def reading(uow: FakeEventsUnitOfWork, community_id: UUID = BOOK_CLUB):
-    use_case = GetCommunityEvents(uow=uow, clock=FixedClock(NOW))
-    return use_case.execute(community_id=community_id, from_=None)
+    use_case = GetCommunityEvents(uow=uow, neighbourhood=NEIGHBOURHOOD, clock=FixedClock(NOW))
+    return use_case.execute(community_id=community_id, cell="here", from_=None)
 
 
 def a_calendar(count: int, *, back: bool = False) -> list[Event]:
@@ -55,8 +64,8 @@ def a_calendar(count: int, *, back: bool = False) -> list[Event]:
 
 
 async def read(uow: FakeEventsUnitOfWork, community_id: UUID = BOOK_CLUB, from_: str | None = None):
-    use_case = GetCommunityEvents(uow=uow, clock=FixedClock(NOW))
-    return await use_case.execute(community_id=community_id, from_=from_)
+    use_case = GetCommunityEvents(uow=uow, neighbourhood=NEIGHBOURHOOD, clock=FixedClock(NOW))
+    return await use_case.execute(community_id=community_id, cell="here", from_=from_)
 
 
 async def test_the_next_event_is_first() -> None:
@@ -105,11 +114,12 @@ async def test_an_event_that_belongs_to_no_community_is_on_nobody_s_list() -> No
     assert [details.event.title for details in page.events] == ["ours"]
 
 
-async def test_where_an_event_happens_does_not_take_it_off_the_list() -> None:
-    """A community is people and not a place, so the two ways onto a list are additive.
+async def test_the_ring_applies_here_the_way_it_does_everywhere() -> None:
+    """Membership is whose list you may add to, not what you are allowed to see.
 
-    The interesting half is the event with no cell at all: a community's plan with no
-    venue is on this list and on no locality's, and nobody has to be near it to see it.
+    The plan filed an hour away is invisible to the member an hour away from it, and so
+    is the one nobody has given a place yet: an event is visible where its cell is, and
+    one with no cell is nowhere. Both are the ticket's locality rule, not a courtesy.
     """
     uow = FakeEventsUnitOfWork(
         [
@@ -137,11 +147,7 @@ async def test_where_an_event_happens_does_not_take_it_off_the_list() -> None:
 
     page = await read(uow)
 
-    assert [details.event.title for details in page.events] == [
-        "in the hall",
-        "no venue yet",
-        "somewhere else",
-    ]
+    assert [details.event.title for details in page.events] == ["in the hall"]
 
 
 async def test_every_event_carries_how_many_are_going_to_it() -> None:

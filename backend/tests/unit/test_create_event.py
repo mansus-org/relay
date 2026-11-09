@@ -181,11 +181,15 @@ async def test_an_event_filed_under_a_community_is_still_written_once() -> None:
     uow = FakeEventsUnitOfWork(communities=a_community(HOST))
 
     event = await planning(uow).execute(
-        host_id=HOST, title="Book swap", starts_at=STARTS, community_id=COMMUNITY
+        host_id=HOST,
+        title="Book swap",
+        starts_at=STARTS,
+        community_id=COMMUNITY,
+        location_cell="here",
     )
 
     listed = await uow.events.page_for_community(
-        community_id=COMMUNITY, start=ListingStart(at=PLANNED_AT), limit=10
+        community_id=COMMUNITY, cells=["here"], start=ListingStart(at=PLANNED_AT), limit=10
     )
     assert [written.id for written in listed] == [event.id]
 
@@ -201,7 +205,7 @@ async def test_a_stranger_cannot_file_an_event_under_a_community() -> None:
 
     assert uow.committed is False
     listed = await uow.events.page_for_community(
-        community_id=COMMUNITY, start=ListingStart(at=PLANNED_AT), limit=10
+        community_id=COMMUNITY, cells=["here"], start=ListingStart(at=PLANNED_AT), limit=10
     )
     assert listed == []
 
