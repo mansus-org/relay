@@ -1,5 +1,20 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from relay.contexts.admin.application import (
+    DeactivateMember,
+    GetMember,
+    IssueInvite,
+    ListInvites,
+    ListMembers,
+    ModerationQueue,
+    ModerationUnitOfWork,
+    ReadModerationLog,
+    ReadPost,
+    RestoreMember,
+    ReviewPost,
+    RevokeInvite,
+)
+from relay.contexts.admin.infrastructure.unit_of_work import SqlAlchemyModerationUnitOfWork
 from relay.contexts.auth import infrastructure as auth
 from relay.contexts.auth.application import (
     EnsureFirstAdmin,
@@ -120,6 +135,9 @@ class Container:
     def events_unit_of_work(self) -> EventsUnitOfWork:
         return SqlAlchemyEventsUnitOfWork(self.session_factory)
 
+    def moderation_unit_of_work(self) -> ModerationUnitOfWork:
+        return SqlAlchemyModerationUnitOfWork(self.session_factory)
+
     def get_health(self) -> GetHealth:
         return GetHealth(version=self.settings.version)
 
@@ -154,6 +172,43 @@ class Container:
 
     def _issue_tokens(self, uow: AuthUnitOfWork) -> IssueTokens:
         return IssueTokens(tokens=self.tokens, clock=self.clock, uow=uow)
+
+    # Moderation. One unit of work for the whole admin surface, because every write in it
+    # has to land next to its line in the trail: a decision nobody wrote down is a decision
+    # nobody can be asked about afterwards.
+
+    def get_moderation_queue(self) -> ModerationQueue:
+        return ModerationQueue(self.moderation_unit_of_work())
+
+    def get_moderated_post(self) -> ReadPost:
+        return ReadPost(self.moderation_unit_of_work())
+
+    def get_review_post(self) -> ReviewPost:
+        return ReviewPost(self.moderation_unit_of_work(), self.clock)
+
+    def get_moderation_log(self) -> ReadModerationLog:
+        return ReadModerationLog(self.moderation_unit_of_work())
+
+    def get_list_members(self) -> ListMembers:
+        return ListMembers(self.moderation_unit_of_work())
+
+    def get_get_member(self) -> GetMember:
+        return GetMember(self.moderation_unit_of_work())
+
+    def get_deactivate_member(self) -> DeactivateMember:
+        return DeactivateMember(self.moderation_unit_of_work(), self.clock)
+
+    def get_restore_member(self) -> RestoreMember:
+        return RestoreMember(self.moderation_unit_of_work(), self.clock)
+
+    def get_list_invites(self) -> ListInvites:
+        return ListInvites(self.moderation_unit_of_work())
+
+    def get_issue_invite(self) -> IssueInvite:
+        return IssueInvite(self.moderation_unit_of_work(), self.clock)
+
+    def get_revoke_invite(self) -> RevokeInvite:
+        return RevokeInvite(self.moderation_unit_of_work(), self.clock)
 
     def get_create_post(self) -> CreatePost:
         return CreatePost(

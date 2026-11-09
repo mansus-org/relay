@@ -2,7 +2,11 @@
 
 from relay.contexts.auth.application.issue_tokens import IssueTokens
 from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
-from relay.contexts.auth.domain.errors import InvalidCredentialsError, InvalidUsernameError
+from relay.contexts.auth.domain.errors import (
+    AccountDeactivatedError,
+    InvalidCredentialsError,
+    InvalidUsernameError,
+)
 from relay.contexts.auth.domain.ports import PasswordHasher
 from relay.contexts.auth.domain.tokens import TokenPair
 from relay.contexts.auth.domain.user import MAX_PASSWORD_BYTES, Username
@@ -36,6 +40,13 @@ class Login:
             matches = self._hasher.verify(password, None if user is None else user.password_hash)
             if user is None or not matches:
                 raise InvalidCredentialsError("Username or password is wrong.")
+            if user.is_deactivated:
+                # Said only once the password has been proved, so it tells a stranger
+                # nothing and tells the person on the other side what they need to know:
+                # their password is fine, and somebody in charge has switched them off.
+                raise AccountDeactivatedError(
+                    "That account has been deactivated. Ask whoever runs your Relay."
+                )
 
             tokens = await self._issuer.execute(user.require_id())
             await self._uow.commit()

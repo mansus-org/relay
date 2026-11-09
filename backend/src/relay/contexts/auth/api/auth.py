@@ -14,6 +14,7 @@ from relay.contexts.auth.application import (
     UpdateDisplayName,
 )
 from relay.contexts.auth.domain.errors import (
+    AccountDeactivatedError,
     InvalidCredentialsError,
     InvalidDisplayNameError,
     InvalidPasswordError,
@@ -196,9 +197,13 @@ async def register(
     summary="Exchange a username and password for a session",
     description=(
         "Wrong username and wrong password get the same answer, so this cannot be used "
-        "to find out which accounts exist."
+        "to find out which accounts exist. An account somebody switched off answers 403, "
+        "but only once the password has been proved."
     ),
-    responses={401: {"description": "No such account, or the password does not match"}},
+    responses={
+        401: {"description": "No such account, or the password does not match"},
+        403: {"description": "That account has been deactivated"},
+    },
 )
 async def login(
     body: LoginRequest,
@@ -206,6 +211,8 @@ async def login(
 ) -> TokenResponse:
     try:
         tokens = await use_case.execute(username=body.username, password=body.password)
+    except AccountDeactivatedError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except InvalidCredentialsError as error:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
     return TokenResponse.from_domain(tokens)
@@ -237,7 +244,10 @@ async def refresh(
     response_model=UserResponse,
     summary="Who the access token belongs to",
     description="The one place a client can check that its token still works.",
-    responses={401: {"description": "No bearer token, or not one we signed"}},
+    responses={
+        401: {"description": "No bearer token, or not one we signed"},
+        403: {"description": "That account has been deactivated"},
+    },
 )
 async def me(user: CurrentUser) -> UserResponse:
     return UserResponse.from_domain(user)

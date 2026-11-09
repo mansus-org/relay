@@ -3,11 +3,18 @@
 import secrets
 from datetime import datetime
 
-from relay.contexts.auth.domain.errors import InviteNotUsableError, InviteSpentError
+from relay.contexts.auth.domain.errors import (
+    InviteNoteTooLongError,
+    InviteNotUsableError,
+    InviteSpentError,
+)
 from relay.contexts.auth.domain.models import RelationalEntity
 from relay.shared.domain import ValueObject
 
 _TOKEN_BYTES = 32
+# An invite note says who the invite was set aside for. Past a short line it is a message,
+# and a message belongs in the email you send with the link, not in the invite row.
+MAX_NOTE_LENGTH = 200
 
 
 class InviteToken(ValueObject):
@@ -39,12 +46,26 @@ class Invite(RelationalEntity):
     used_at: datetime | None = None
     revoked_at: datetime | None = None
     created_at: datetime | None = None
+    note: str | None = None
 
     @classmethod
     def issue(
-        cls, *, created_by_id: int | None = None, created_at: datetime | None = None
+        cls,
+        *,
+        created_by_id: int | None = None,
+        created_at: datetime | None = None,
+        note: str | None = None,
     ) -> "Invite":
-        return cls(token=InviteToken.new(), created_by_id=created_by_id, created_at=created_at)
+        """Make a new invite. `note` is who it was set aside for, and is optional."""
+        trimmed = note.strip() if note else None
+        if trimmed is not None and len(trimmed) > MAX_NOTE_LENGTH:
+            raise InviteNoteTooLongError(f"An invite note is at most {MAX_NOTE_LENGTH} characters.")
+        return cls(
+            token=InviteToken.new(),
+            created_by_id=created_by_id,
+            created_at=created_at,
+            note=trimmed or None,
+        )
 
     @property
     def state(self) -> str:
