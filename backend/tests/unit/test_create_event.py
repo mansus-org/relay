@@ -1,21 +1,24 @@
 """Planning an event: it gets written down, or nothing does."""
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from relay.contexts.events.application import CreateEvent
 from relay.contexts.events.domain.cells import UnknownCellError
+from relay.contexts.events.domain.community import CommunityNotFoundError, NotAMemberError
 from relay.contexts.events.domain.event import InvalidTimeError
 from relay.contexts.events.domain.listing import ListingStart
 from relay.shared.domain import ValidationError
 from tests.fakes.clock import FixedClock
-from tests.fakes.events import FakeEventsUnitOfWork, FixedCells
+from tests.fakes.events import FakeEventsUnitOfWork, FixedCells, InMemoryCommunities
 
 #: When the event was planned, and when it happens: the two must never be confused.
 PLANNED_AT = datetime(2026, 3, 1, 9, 30, tzinfo=UTC)
 STARTS = datetime(2026, 3, 4, 18, tzinfo=UTC)
+#: The host these tests plan as, so a membership can be about somebody.
+HOST = UUID("11111111-1111-1111-1111-111111111111")
 
 
 def planning(uow: FakeEventsUnitOfWork) -> CreateEvent:
@@ -143,3 +146,85 @@ async def test_an_end_that_is_not_a_time_at_all_is_refused() -> None:
         )
 
     assert uow.committed is False
+
+
+# Filing an event under a community.
+
+COMMUNITY = UUID("33333333-3333-3333-3333-333333333333")
+STRANGER = UUID("44444444-4444-4444-4444-444444444444")
+
+
+def a_community(*members: UUID) -> InMemoryCommunities:
+    """The community these tests file under, with whoever it says belongs to it."""
+    found = InMemoryCommunities()
+    found.found(COMMUNITY, "Vigo Book Club", *members)
+    return found
+
+
+async def test_an_event_can_be_filed_under_a_community_its_host_belongs_to() -> None:
+    uow = FakeEventsUnitOfWork(communities=a_community(HOST))
+
+    event = await planning(uow).execute(
+        host_id=HOST, title="Book swap", starts_at=STARTS, community_id=COMMUNITY
+    )
+
+    assert uow.committed is True
+    assert event.community_id == COMMUNITY
+
+
+async def test_an_event_filed_under_a_community_is_still_written_once() -> None:
+    """The community is a column on the event, not a second row anywhere.
+
+    It is worth saying out loud, because the tempting wrong shape is a join table: an
+    event belongs to one community, and a second one is a second event.
+    """
+    uow = FakeEventsUnitOfWork(communities=a_community(HOST))
+
+    event = await planning(uow).execute(
+        host_id=HOST, title="Book swap", starts_at=STARTS, community_id=COMMUNITY
+    )
+
+    listed = await uow.events.page_for_community(
+        community_id=COMMUNITY, start=ListingStart(at=PLANNED_AT), limit=10
+    )
+    assert [written.id for written in listed] == [event.id]
+
+
+async def test_a_stranger_cannot_file_an_event_under_a_community() -> None:
+    """Whatever else a stranger may plan, they cannot put it on a group's list."""
+    uow = FakeEventsUnitOfWork(communities=a_community(HOST))
+
+    with pytest.raises(NotAMemberError):
+        await planning(uow).execute(
+            host_id=STRANGER, title="Book swap", starts_at=STARTS, community_id=COMMUNITY
+        )
+
+    assert uow.committed is False
+    listed = await uow.events.page_for_community(
+        community_id=COMMUNITY, start=ListingStart(at=PLANNED_AT), limit=10
+    )
+    assert listed == []
+
+
+async def test_a_community_that_does_not_exist_is_said_so_rather_than_refused_as_not_a_member() -> (
+    None
+):
+    """Two mistakes, two messages: a copied-and-torn-off id is not the same as being out of it."""
+    uow = FakeEventsUnitOfWork(communities=a_community(HOST))
+
+    with pytest.raises(CommunityNotFoundError):
+        await planning(uow).execute(
+            host_id=HOST, title="Book swap", starts_at=STARTS, community_id=uuid4()
+        )
+
+    assert uow.committed is False
+
+
+async def test_planning_without_a_community_never_asks_who_is_in_what() -> None:
+    """The common case stays the cheap case: no community named, no membership looked up."""
+    uow = FakeEventsUnitOfWork()
+
+    event = await planning(uow).execute(host_id=HOST, title="Book swap", starts_at=STARTS)
+
+    assert event.community_id is None
+    assert uow.committed is True

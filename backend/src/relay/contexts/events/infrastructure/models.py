@@ -27,12 +27,18 @@ class EventModel(Base):
     `host_id` carries no foreign key on purpose: the users table belongs to RELY-87
     and does not exist yet, so it is a plain column until that context can add the
     constraint. `location_cell` does the job it does on a post — it is what puts the
-    event in a locality's list of what is on.
+    event in a locality's list of what is on, and `community_id` is the other way an
+    event gets an audience: the people it was filed under rather than the place.
     """
 
     __tablename__ = "events"
-    # The list's only query: a cell, then walk it forward in time.
-    __table_args__ = (Index("ix_events_location_cell_starts_at", "location_cell", "starts_at"),)
+    __table_args__ = (
+        # The list's only query: a cell, then walk it forward in time.
+        Index("ix_events_location_cell_starts_at", "location_cell", "starts_at"),
+        # The other list's only query, and the same shape: a community, then forward in
+        # time from wherever its page starts.
+        Index("ix_events_community_id_starts_at", "community_id", "starts_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     host_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
@@ -42,6 +48,10 @@ class EventModel(Base):
     venue_name: Mapped[str | None] = mapped_column(String(MAX_VENUE_LENGTH))
     details: Mapped[str | None] = mapped_column(Text)
     location_cell: Mapped[str | None] = mapped_column(String(32))
+    # The community it was filed under, if it was. No foreign key, same as the community
+    # column on a post: the communities table belongs to another context, which this one
+    # is allowed to read and never to constrain.
+    community_id: Mapped[UUID | None] = mapped_column(Uuid)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     @classmethod
@@ -57,6 +67,7 @@ class EventModel(Base):
             venue_name=event.venue_name,
             details=event.details,
             location_cell=event.location_cell,
+            community_id=event.community_id,
             created_at=event.created_at.astimezone(UTC),
         )
 
@@ -70,6 +81,7 @@ class EventModel(Base):
             venue_name=self.venue_name,
             details=self.details,
             location_cell=self.location_cell,
+            community_id=self.community_id,
             created_at=_as_utc(self.created_at),
         )
 

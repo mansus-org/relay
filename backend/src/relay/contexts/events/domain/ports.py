@@ -25,6 +25,17 @@ class EventRepository(Repository[Event, UUID]):
         none of the cells, so it never comes back.
         """
 
+    @abstractmethod
+    async def page_for_community(
+        self, *, community_id: UUID, start: ListingStart, limit: int
+    ) -> list[Event]:
+        """The same pages, read out of one community instead of one neighbourhood.
+
+        A community is people rather than a place, so nothing here is cut by cells: an
+        event filed under it is on its list whether or not anyone has said where it
+        happens, and an event filed under it *and* at a cell is on both lists.
+        """
+
 
 class RsvpRepository(Repository[Rsvp, UUID]):
     """Who is going to what."""
@@ -46,6 +57,30 @@ class RsvpRepository(Repository[Rsvp, UUID]):
         """How many are going to each of these, in one read.
 
         An event nobody is going to has no entry, and the caller reads that as none.
+        """
+
+
+class Communities(ABC):
+    """The read side of the communities context, as far as events is allowed to see it.
+
+    Read-only, and the only way this context learns anything about a community: the
+    communities context keeps its name, its members and its reach to itself.
+    """
+
+    @abstractmethod
+    async def names_for(self, community_ids: Iterable[UUID]) -> dict[UUID, str]:
+        """The name of each of these, in one read.
+
+        An id with no name beside it is an id no community owns, which is how a caller
+        tells a community that was never there from one that is simply empty.
+        """
+
+    @abstractmethod
+    async def is_member(self, *, community_id: UUID, member_id: UUID) -> bool:
+        """Whether this person is one of the people who make up this community.
+
+        False for a community that does not exist, and the caller decides whether that
+        deserves a different message from one it does.
         """
 
 

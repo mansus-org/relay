@@ -43,6 +43,7 @@ from relay.contexts.events.application import (
     CancelRsvp,
     CreateEvent,
     EventsUnitOfWork,
+    GetCommunityEvents,
     GetEvent,
     GetEvents,
     RsvpEvent,
@@ -262,6 +263,9 @@ class Container:
 
     def get_event(self) -> GetEvent:
         return GetEvent(uow=self.events_unit_of_work())
+
+    def get_community_events(self) -> GetCommunityEvents:
+        return GetCommunityEvents(uow=self.events_unit_of_work(), clock=self.clock)
 
     def get_rsvp_event(self) -> RsvpEvent:
         return RsvpEvent(uow=self.events_unit_of_work(), clock=self.clock)

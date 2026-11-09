@@ -8,29 +8,28 @@ from sqlalchemy import Select, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from relay.contexts.communities.infrastructure.models import CommunityMemberModel, CommunityModel
 from relay.contexts.events.domain.event import Event
 from relay.contexts.events.domain.listing import ListingStart
-from relay.contexts.events.domain.ports import EventRepository, RsvpRepository
+from relay.contexts.events.domain.ports import Communities, EventRepository, RsvpRepository
 from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp
 from relay.contexts.events.infrastructure.models import EventModel, RsvpModel
 
 
-def listing_statement(cells: list[str], start: ListingStart, limit: int) -> Select:
-    """One page of the listing, in the direction it was asked to be read.
+def page_of(statement: Select, start: ListingStart, limit: int) -> Select:
+    """Cut one page out of `statement`, in the direction `start` reads it.
 
-    `IN` leaves out the events that named no locality at all, which is what keeps them
-    out of every locality's list. The page is cut at a row and not at an instant, because
-    hosts pick start times and a town's events all start at seven: a cut at "after
-    seven" would drop every other event at seven that did not fit on the page.
+    The page is cut at a row and not at an instant, because hosts pick start times and a
+    town's events all start at seven: a cut at "after seven" would drop every other event
+    at seven that did not fit on the page.
 
     That cut is written as a range over the time with a tie-break at its edge, and not as
     `(starts_at, id) > (:wall, :seen)`. Both databases flatten the row pair into that
     range today, but the flattening is the planner's doing and not something to build
     on: a database that read a row pair as one value would have no range to use the index
-    for, and would read the whole locality again for every page. Built here rather than
+    for, and would read the whole list again for every page. Built here rather than
     inline so the query the repository runs is the query a test can put under EXPLAIN.
     """
-    statement = select(EventModel).where(EventModel.location_cell.in_(cells))
     # The wall is bound in UTC however it arrived. `ListingStart` already keeps it there;
     # this is the second line, because on SQLite the column holds UTC text and a wall in
     # another zone would be compared as the words for that other clock.
@@ -51,7 +50,7 @@ def listing_statement(cells: list[str], start: ListingStart, limit: int) -> Sele
         )
         # The wall is named twice on purpose. The tie-break already implies which side of
         # it the page is on, but a range said on its own is something a database can use
-        # the index for, rather than reading the locality and filtering afterwards.
+        # the index for, rather than reading the list and filtering afterwards.
         up_to = EventModel.starts_at <= wall if start.backwards else EventModel.starts_at >= wall
         clear = EventModel.starts_at < wall if start.backwards else EventModel.starts_at > wall
         statement = statement.where(up_to, clear | at_the_wall)
@@ -61,6 +60,26 @@ def listing_statement(cells: list[str], start: ListingStart, limit: int) -> Sele
         else (EventModel.starts_at.asc(), EventModel.id.asc())
     )
     return statement.order_by(*order).limit(limit)
+
+
+def listing_statement(cells: list[str], start: ListingStart, limit: int) -> Select:
+    """One page of a locality's listing, in the direction it was asked to be read.
+
+    `IN` leaves out the events that named no locality at all, which is what keeps them
+    out of every locality's list. An event that named a community as well is still here:
+    who a plan is for is a second way onto a list, not a way off this one.
+    """
+    return page_of(select(EventModel).where(EventModel.location_cell.in_(cells)), start, limit)
+
+
+def community_listing_statement(community_id: UUID, start: ListingStart, limit: int) -> Select:
+    """One page of one community's list, in the direction it was asked to be read.
+
+    The same cut as a locality's page, over the other column: nothing here is filtered by
+    cells, because a community is people and not a place. The plan a community has with no
+    venue and no cell on it is still on that community's list, and on nobody else's.
+    """
+    return page_of(select(EventModel).where(EventModel.community_id == community_id), start, limit)
 
 
 class SqlAlchemyEventRepository(EventRepository):
@@ -82,6 +101,49 @@ class SqlAlchemyEventRepository(EventRepository):
         statement = listing_statement(list(cells), start, limit)
         rows = (await self._session.execute(statement)).scalars()
         return [row.to_domain() for row in rows]
+
+    async def page_for_community(
+        self, *, community_id: UUID, start: ListingStart, limit: int
+    ) -> list[Event]:
+        statement = community_listing_statement(community_id, start, limit)
+        rows = (await self._session.execute(statement)).scalars()
+        return [row.to_domain() for row in rows]
+
+
+class SqlAlchemyCommunities(Communities):
+    """Names and membership, read straight off the communities tables.
+
+    The communities context owns those tables and this only reads them, which is the one
+    direction the dependency between the two contexts is allowed to point: an event can
+    say what community it belongs to and what that community is called, and knows nothing
+    else about it. The same arrangement as a community reading the posts table for its
+    feed, with the arrows the other way round.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def names_for(self, community_ids: Iterable[UUID]) -> dict[UUID, str]:
+        wanted = set(community_ids)
+        if not wanted:
+            return {}
+        rows = await self._session.execute(
+            select(CommunityModel.id, CommunityModel.name).where(CommunityModel.id.in_(wanted))
+        )
+        return {community_id: name for community_id, name in rows}
+
+    async def is_member(self, *, community_id: UUID, member_id: UUID) -> bool:
+        found = (
+            await self._session.execute(
+                select(CommunityMemberModel.id)
+                .where(
+                    CommunityMemberModel.community_id == community_id,
+                    CommunityMemberModel.user_id == member_id,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return found is not None
 
 
 class SqlAlchemyRsvpRepository(RsvpRepository):
