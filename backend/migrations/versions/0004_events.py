@@ -56,9 +56,7 @@ def upgrade() -> None:
             name=op.f("fk_rsvps_event_id_events"),
             ondelete="CASCADE",
         ),
-        sa.UniqueConstraint(
-            "event_id", "member_id", name=op.f("uq_rsvps_event_id_member_id")
-        ),
+        sa.UniqueConstraint("event_id", "member_id", name=op.f("uq_rsvps_event_id_member_id")),
     )
 
 

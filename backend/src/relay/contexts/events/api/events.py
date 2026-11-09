@@ -232,7 +232,9 @@ async def read_events(
 ) -> EventListResponse:
     try:
         page = await use_case.execute(cell=cell, radius_km=radius, after=after)
-    except CellError as error:
+    except (ValidationError, CellError) as error:
+        # Including the `after`: a marker this list never handed out is the client's
+        # mistake to hear about, not a 500 to retry forever.
         raise HTTPException(status_code=400, detail=str(error)) from error
     return EventListResponse.from_domain(page)
 

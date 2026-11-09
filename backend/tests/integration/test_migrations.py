@@ -52,3 +52,68 @@ async def test_the_feed_index_walks_the_cell_then_the_clock(
 
     feed = next(index for index in indexes if index["name"] == "ix_posts_location_cell_created_at")
     assert feed["column_names"] == ["location_cell", "created_at"]
+
+
+async def test_the_events_table_is_there_with_the_columns_a_listing_needs(
+    migrated_engine: AsyncEngine,
+) -> None:
+    async with migrated_engine.connect() as conn:
+        columns = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_columns("events"))
+
+    assert {column["name"] for column in columns} == {
+        "id",
+        "host_id",
+        "title",
+        "starts_at",
+        "ends_at",
+        "venue_name",
+        "details",
+        "location_cell",
+        "created_at",
+    }
+    # Where and when it ends are the host's to leave out; what and when it starts are not.
+    assert {column["name"] for column in columns if not column["nullable"]} == {
+        "id",
+        "host_id",
+        "title",
+        "starts_at",
+        "created_at",
+    }
+
+
+async def test_the_events_index_walks_the_cell_then_the_clock(
+    migrated_engine: AsyncEngine,
+) -> None:
+    """A list of what is on is one query: this cell, then forward in time."""
+    async with migrated_engine.connect() as conn:
+        indexes = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_indexes("events"))
+
+    listing = next(
+        index for index in indexes if index["name"] == "ix_events_location_cell_starts_at"
+    )
+    assert listing["column_names"] == ["location_cell", "starts_at"]
+
+
+async def test_a_place_is_taken_against_one_event_and_one_member_once(
+    migrated_engine: AsyncEngine,
+) -> None:
+    """The pair that makes saying you are going twice say it once, in the schema."""
+    async with migrated_engine.connect() as conn:
+        columns = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_columns("rsvps"))
+        uniques = await conn.run_sync(
+            lambda sync_conn: inspect(sync_conn).get_unique_constraints("rsvps")
+        )
+        keys = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_foreign_keys("rsvps"))
+
+    assert {column["name"] for column in columns} == {
+        "id",
+        "event_id",
+        "member_id",
+        "created_at",
+    }
+    assert {tuple(constraint["column_names"]) for constraint in uniques} == {
+        ("event_id", "member_id")
+    }
+    assert [(key["referred_table"], key["options"].get("ondelete")) for key in keys] == [
+        ("events", "CASCADE")
+    ]
