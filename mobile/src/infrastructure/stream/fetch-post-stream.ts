@@ -1,7 +1,7 @@
-import type { Post, PostStream } from '../../domain'
+import type { PostStream, StreamEvent } from '../../domain'
 import { STREAM_PATH } from '../http/endpoints'
 import { toPost, type PostDto } from '../http/post-dto'
-import { makeSseParser } from './sse-parser'
+import { makeSseParser, type SseMessage } from './sse-parser'
 
 /** The subset of fetch the stream needs; `expo/fetch` provides it with streaming bodies on native and web. */
 export type StreamFetch = (
@@ -25,9 +25,28 @@ const defaultWait = (ms: number, signal: AbortSignal) =>
   })
 
 /**
+ * Reads one message of the stream; everything else on it is someone else's business.
+ *
+ * The stream is not served yet, and the two contracts on file for it do not agree on the name of
+ * the new-post event — RELY-99 says `new_post`, the client written against RELY-34 says `post`.
+ * It takes either. `post_removed` carries `{"id": …}` for a post that went away while you were
+ * reading it. Anything else (pings, events we do not know) is ignored rather than guessed at.
+ */
+const toStreamEvent = (message: SseMessage): StreamEvent | null => {
+  try {
+    if (message.event === 'post' || message.event === 'new_post')
+      return { kind: 'new_post', post: toPost(JSON.parse(message.data) as PostDto) }
+    if (message.event !== 'post_removed') return null
+    const { id } = JSON.parse(message.data) as { id?: unknown }
+    return typeof id === 'string' ? { kind: 'post_removed', postId: id } : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Reads GET /stream?cell=… as Server-Sent Events over fetch (EventSource cannot send the auth
  * header and does not exist on React Native). Reconnects with backoff until unsubscribed.
- * Assumed event: `event: post` with the post JSON as data.
  */
 export const makeFetchPostStream = ({
   fetch,
@@ -36,7 +55,7 @@ export const makeFetchPostStream = ({
   retryDelaysMs = [1000, 2000, 5000, 15000, 30000],
   wait = defaultWait,
 }: FetchPostStreamDeps): PostStream => ({
-  subscribe(cell, onPost) {
+  subscribe(cell, onEvent) {
     const controller = new AbortController()
     const { signal } = controller
 
@@ -54,14 +73,8 @@ export const makeFetchPostStream = ({
         const { done, value } = await reader.read()
         if (done) return true
         for (const message of parse(decoder.decode(value, { stream: true }))) {
-          if (message.event !== 'post') continue
-          let post: Post
-          try {
-            post = toPost(JSON.parse(message.data) as PostDto)
-          } catch {
-            continue
-          }
-          if (!signal.aborted) onPost(post)
+          const event = toStreamEvent(message)
+          if (event && !signal.aborted) onEvent(event)
         }
       }
     }

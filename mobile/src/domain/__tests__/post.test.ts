@@ -6,6 +6,7 @@ const post = (id: string): Post => ({
   body: id,
   createdAt: '2026-10-29T12:00:00Z',
   locationCell: null,
+  parentId: null,
   reactions: [],
   replyCount: 0,
 })

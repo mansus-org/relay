@@ -1,6 +1,6 @@
-import type { Post, PostStream } from '../domain'
+import type { StreamEvent, PostStream } from '../domain'
 
 export const makeSubscribeToPosts =
   ({ postStream }: { postStream: PostStream }) =>
-  (cell: string, onPost: (post: Post) => void): (() => void) =>
-    postStream.subscribe(cell, onPost)
+  (cell: string, onEvent: (event: StreamEvent) => void): (() => void) =>
+    postStream.subscribe(cell, onEvent)

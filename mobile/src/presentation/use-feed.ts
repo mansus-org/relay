@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, Platform } from 'react-native'
 
-import { appendPage, bufferPost, postalCodeMessage, prependPosts, type Post } from '../domain'
+import { appendPage, bufferPost, postalCodeMessage, prependPosts, removePost, type Post } from '../domain'
 import { useUseCases } from './use-cases'
 
 /** The web has no GPS of its own; the browser gets asked instead, and a postal code covers the rest. */
@@ -187,8 +187,14 @@ export function useFeed(options: FeedOptions = {}) {
   const { cell } = state
   useEffect(() => {
     if (!cell) return
-    return subscribeToPosts(cell, (post) =>
-      setState((s) => (s.posts.some((p) => p.id === post.id) ? s : { ...s, pending: bufferPost(s.pending, post) })),
+    return subscribeToPosts(cell, (event) =>
+      setState((s) =>
+        event.kind === 'post_removed'
+          ? { ...s, posts: removePost(s.posts, event.postId), pending: removePost(s.pending, event.postId) }
+          : s.posts.some((p) => p.id === event.post.id)
+            ? s
+            : { ...s, pending: bufferPost(s.pending, event.post) },
+      ),
     )
   }, [cell, subscribeToPosts])
 

@@ -76,6 +76,7 @@ export const makePost = (id: string, overrides: Partial<Post> = {}): Post => ({
   body: `post ${id}`,
   createdAt: '2026-10-29T12:00:00Z',
   locationCell: null,
+  parentId: null,
   reactions: [],
   replyCount: 0,
   ...overrides,

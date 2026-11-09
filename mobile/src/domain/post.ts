@@ -18,9 +18,19 @@ export type Post = {
   readonly createdAt: string
   /** H3 cell of the post, or null for posts private to node members. */
   readonly locationCell: string | null
+  /** The post this one answers, or null when it is the start of a thread. */
+  readonly parentId: string | null
   readonly reactions: readonly Reaction[]
   readonly replyCount: number
 }
+
+/** The six emojis the picker offers; anything else a post carries came from another client. */
+export const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'] as const
+
+/** What the live stream says happened in a cell. */
+export type StreamEvent =
+  | { readonly kind: 'new_post'; readonly post: Post }
+  | { readonly kind: 'post_removed'; readonly postId: string }
 
 export type FeedPage = {
   readonly posts: readonly Post[]
@@ -38,6 +48,8 @@ export type NewPost = {
   readonly body: string
   readonly locationCell?: string
   readonly communityId?: string
+  /** Set it to answer that post instead of starting a thread of your own. */
+  readonly parentId?: string
 }
 
 export type Community = {
@@ -68,6 +80,43 @@ export const prependPosts = (current: readonly Post[], incoming: readonly Post[]
 /** Adds a streamed post to a buffer of unseen posts, newest first, without duplicates. */
 export const bufferPost = (buffer: readonly Post[], post: Post): readonly Post[] =>
   buffer.some((p) => p.id === post.id) ? buffer : [post, ...buffer]
+
+/** Takes a post out of a list; a `post_removed` event does this to the feed. */
+export const removePost = (posts: readonly Post[], postId: string): readonly Post[] =>
+  posts.filter((p) => p.id !== postId)
+
+/** Your reaction on a post, when you left that emoji on it. */
+export const myReaction = (post: Post, emoji: string): Reaction | null =>
+  post.reactions.find((r) => r.emoji === emoji && r.mine) ?? null
+
+/** Leaves an emoji: your own tally goes up, a tally nobody left drops off. */
+export const addReaction = (reactions: readonly Reaction[], emoji: string): readonly Reaction[] => {
+  const hit = reactions.find((r) => r.emoji === emoji)
+  if (!hit) return [...reactions, { emoji, count: 1, mine: true }]
+  return hit.mine
+    ? reactions
+    : reactions.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1, mine: true } : r))
+}
+
+/** Takes your emoji back; the tally stays when others left the same one. */
+export const removeReaction = (reactions: readonly Reaction[], emoji: string): readonly Reaction[] =>
+  reactions.flatMap((r) =>
+    r.emoji !== emoji || !r.mine ? [r] : r.count > 1 ? [{ ...r, count: r.count - 1, mine: false }] : [],
+  )
+
+/** Replaces one tally with what the server just said about it; a zero one drops off. */
+export const mergeReaction = (reactions: readonly Reaction[], tally: Reaction): readonly Reaction[] =>
+  tally.count === 0
+    ? reactions.filter((r) => r.emoji !== tally.emoji)
+    : reactions.some((r) => r.emoji === tally.emoji)
+      ? reactions.map((r) => (r.emoji === tally.emoji ? tally : r))
+      : [...reactions, tally]
+
+/** The same post with its reaction toggled, which is what a tap shows before the server answers. */
+export const toggleReaction = (post: Post, emoji: string): Post => ({
+  ...post,
+  reactions: myReaction(post, emoji) ? removeReaction(post.reactions, emoji) : addReaction(post.reactions, emoji),
+})
 
 export const charsLeft = (body: string): number => MAX_POST_LENGTH - body.length
 

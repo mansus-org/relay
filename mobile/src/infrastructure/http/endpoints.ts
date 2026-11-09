@@ -3,9 +3,16 @@ export const LOGIN_PATH = '/auth/login'
 export const REGISTER_PATH = '/auth/register'
 export const REFRESH_PATH = '/auth/refresh'
 
-// Feed, posts and live stream. Assumed contract; the backend endpoints do not exist yet.
+// Feed and posts. Served by the backend (RELY-90).
 export const FEED_PATH = '/feed'
 export const POSTS_PATH = '/posts'
+export const postPath = (id: string) => `${POSTS_PATH}/${encodeURIComponent(id)}`
+export const postRepliesPath = (id: string) => `${postPath(id)}/replies`
+export const postReactionsPath = (id: string) => `${postPath(id)}/reactions`
+/** The emoji goes in the path, so it is encoded like any other path segment. */
+export const reactionPath = (id: string, emoji: string) => `${postReactionsPath(id)}/${encodeURIComponent(emoji)}`
+
+// Live stream. Assumed contract: the backend does not serve it yet.
 export const STREAM_PATH = '/stream'
 export const JOINED_COMMUNITIES_PATH = '/communities/joined'
 

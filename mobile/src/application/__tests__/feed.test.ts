@@ -1,10 +1,19 @@
-import { err, ok } from '../../domain'
+import { err, ok, type PostRepository } from '../../domain'
 import { makeFakeCellEncoder, makeFakeLocationProvider, makeFakePlaceNamer, makePost } from '../../testing/fakes'
 import { makeCreatePost, makeListJoinedCommunities } from '../compose'
 import { makeLoadFeed } from '../feed'
 import { makeCellPlaceName, makeResolveLocation } from '../resolve-location'
 
 const cellEncoder = makeFakeCellEncoder()
+
+/** A PostRepository that only has to know how to `create`. */
+const repositoryWithCreate = (create: jest.Mock): PostRepository => ({
+  create,
+  get: jest.fn(),
+  listReplies: jest.fn(),
+  react: jest.fn(),
+  unreact: jest.fn(),
+})
 
 describe('resolveLocation', () => {
   it('returns the cell and the place name of its centroid when permission is granted', async () => {
@@ -63,14 +72,14 @@ describe('loadFeed', () => {
 describe('createPost', () => {
   it('trims the body and sends the location cell when given', async () => {
     const create = jest.fn().mockResolvedValue(ok(makePost('n')))
-    const result = await makeCreatePost({ postRepository: { create } })({ body: ' hi ', locationCell: 'x', communityId: 'c' })
+    const result = await makeCreatePost({ postRepository: repositoryWithCreate(create) })({ body: ' hi ', locationCell: 'x', communityId: 'c' })
     expect(result.ok).toBe(true)
     expect(create).toHaveBeenCalledWith({ body: 'hi', locationCell: 'x', communityId: 'c' })
   })
 
   it('does not call the server for blank or over-long bodies', async () => {
     const create = jest.fn()
-    const createPost = makeCreatePost({ postRepository: { create } })
+    const createPost = makeCreatePost({ postRepository: repositoryWithCreate(create) })
     expect(await createPost({ body: '  ' })).toEqual(err('empty'))
     expect(await createPost({ body: 'x'.repeat(501) })).toEqual(err('too-long'))
     expect(create).not.toHaveBeenCalled()
