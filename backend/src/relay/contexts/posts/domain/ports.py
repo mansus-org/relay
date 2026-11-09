@@ -27,3 +27,16 @@ class CellNeighbourhood(ABC):
 
     @abstractmethod
     def visible_from(self, cell: str, radius_km: float) -> set[str]: ...
+
+
+class CellStandard(ABC):
+    """Which strings count as a cell here, and the one way a cell is written."""
+
+    @abstractmethod
+    def normalise(self, cell: str) -> str:
+        """The form of `cell` that the feed will read back.
+
+        Raises UnknownCellError for anything it would never read: a string that is not
+        a cell, or one at a resolution no feed is served at. Saving either would hand
+        the writer a post no locality can ever show.
+        """

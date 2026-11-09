@@ -50,7 +50,9 @@ class PostModel(Base):
             body=post.body,
             location_cell=post.location_cell,
             community_id=post.community_id,
-            created_at=post.created_at,
+            # Stored in UTC whichever zone the post was said in, so what comes back out
+            # is the same instant: SQLite keeps no offset of its own to fall back on.
+            created_at=post.created_at.astimezone(UTC),
             moderation_status=post.moderation_status.value,
         )
 

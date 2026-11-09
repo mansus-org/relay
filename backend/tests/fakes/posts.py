@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from relay.contexts.posts.application.unit_of_work import PostsUnitOfWork
-from relay.contexts.posts.domain.ports import CellNeighbourhood, PostRepository
+from relay.contexts.posts.domain.cells import UnknownCellError
+from relay.contexts.posts.domain.ports import CellNeighbourhood, CellStandard, PostRepository
 from relay.contexts.posts.domain.post import Post
 from tests.fakes.repository import InMemoryRepository
 from tests.fakes.unit_of_work import FakeUnitOfWork
@@ -53,6 +54,18 @@ class FixedNeighbourhood(CellNeighbourhood):
 
     def visible_from(self, cell: str, radius_km: float) -> set[str]:
         return self._rings.get(cell, {cell})
+
+
+class FixedCells(CellStandard):
+    """A cell standard that knows the cells a test named, and refuses every other string."""
+
+    def __init__(self, known: Iterable[str] = ("here",)) -> None:
+        self._known = set(known)
+
+    def normalise(self, cell: str) -> str:
+        if cell not in self._known:
+            raise UnknownCellError(f"{cell!r} is not a cell here.")
+        return cell
 
 
 class FakePostsUnitOfWork(FakeUnitOfWork, PostsUnitOfWork):

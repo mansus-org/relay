@@ -106,7 +106,8 @@ class NewPostRequest(BaseModel):
     """`location_cell` is the writer's own cell, so a post lands in their locality.
 
     Leaving it out is allowed and means the post reaches no locality feed; Relay does
-    not guess a locality from anything else.
+    not guess a locality from anything else. Sending one that is not a cell is refused
+    rather than stored, for the same reason.
     """
 
     body: str
@@ -137,9 +138,16 @@ def get_post_use_case(
     response_model=PostResponse,
     status_code=201,
     summary="Say something",
-    description="Saves a post and returns it. At most 500 characters of text.",
+    description=(
+        "Saves a post and returns it. At most 500 characters of text. "
+        "`location_cell` has to be a real resolution-8 H3 cell, because a post filed "
+        "anywhere else is a post no locality feed will ever read."
+    ),
     responses={
-        400: {"description": f"The body was empty or over {MAX_BODY_LENGTH} characters."},
+        400: {
+            "description": f"The body was empty or over {MAX_BODY_LENGTH} characters, "
+            "or `location_cell` was not a resolution-8 H3 cell."
+        },
         401: {"description": "No bearer token to write as."},
     },
 )
@@ -155,7 +163,7 @@ async def create_post(
             location_cell=payload.location_cell,
             community_id=payload.community_id,
         )
-    except ValidationError as error:
+    except (ValidationError, CellError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return PostResponse.from_domain(post)
 

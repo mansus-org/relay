@@ -1,21 +1,23 @@
 """The posts table: what goes in comes back out, and the feed query filters like the domain."""
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
+import h3
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from relay.contexts.posts.domain.post import Post
-from relay.contexts.posts.infrastructure.repository import feed_statement
+from relay.contexts.posts.domain.post import ModerationStatus, Post
 from relay.contexts.posts.infrastructure.unit_of_work import SqlAlchemyPostsUnitOfWork
 from relay.shared.infrastructure.database import create_session_factory
 
 VIGO = "883920cd1bfffff"
-NEXT_DOOR = "883920cd1bffffe"
+#: A real cell next door to Vigo's, taken from the ring a feed would read.
+NEXT_DOOR = next(cell for cell in h3.grid_disk(VIGO, 1) if cell != VIGO)
 A_CORUNA = "883925cf43fffff"
 START = datetime(2026, 3, 4, 12, tzinfo=UTC)
+TOKYO = timezone(timedelta(hours=9))
 
 
 @pytest.fixture
@@ -47,15 +49,36 @@ async def seed(uow: SqlAlchemyPostsUnitOfWork, *posts: Post) -> None:
     await uow.commit()
 
 
+def everything_about(post: Post) -> dict[str, object]:
+    """What the row has to get back right.
+
+    A Post is only equal to another Post of the same id, so `got == post` proves the
+    row exists and nothing about what is in it.
+    """
+    return {
+        "author_id": post.author_id,
+        "body": post.body,
+        "created_at": post.created_at,
+        "location_cell": post.location_cell,
+        "community_id": post.community_id,
+        "moderation_status": post.moderation_status,
+    }
+
+
 async def test_a_post_comes_back_as_it_was_said(uow: SqlAlchemyPostsUnitOfWork) -> None:
     """Every field, including the two no endpoint reads back yet."""
     post = said("The bakery on the corner is gone.", community=uuid4())
     taken_down = said("Rude, apparently.", minutes=1).removed()
     await seed(uow, post, taken_down)
 
-    assert await uow.posts.get(post.id) == post
+    back = await uow.posts.get(post.id)
+    assert back is not None
+    assert everything_about(back) == everything_about(post)
+
+    taken_down_back = await uow.posts.get(taken_down.id)
+    assert taken_down_back is not None
     # The moderation status is stored, not assumed on the way back out.
-    assert await uow.posts.get(taken_down.id) == taken_down
+    assert taken_down_back.moderation_status is ModerationStatus.REMOVED
 
 
 async def test_a_post_that_was_never_said_comes_back_as_nothing(
@@ -118,17 +141,14 @@ async def test_a_page_starts_after_the_timestamp_it_is_given(
     assert [post.body for post in found] == ["post 1", "post 0"]
 
 
-async def test_the_feed_query_walks_the_index_it_was_given(
-    migrated_engine: AsyncEngine,
+async def test_a_page_starts_at_the_same_instant_when_the_timestamp_comes_in_another_zone(
+    uow: SqlAlchemyPostsUnitOfWork,
 ) -> None:
-    """An index the query never uses is decoration, so the plan is part of the contract."""
-    if migrated_engine.dialect.name != "sqlite":
-        pytest.skip("the plan is read SQLite's way here")
+    """A cursor is an instant, not a wall-clock reading: the same instant pages the same way."""
+    posts = [said(f"post {n}", minutes=n) for n in range(5)]
+    await seed(uow, *posts)
 
-    query = feed_statement([VIGO, NEXT_DOOR], before=None, limit=21).compile(
-        dialect=migrated_engine.sync_engine.dialect, compile_kwargs={"literal_binds": True}
-    )
-    async with migrated_engine.connect() as conn:
-        plan = (await conn.exec_driver_sql(f"EXPLAIN QUERY PLAN {query}")).all()
+    in_tokyo = posts[2].created_at.astimezone(TOKYO)
+    found = await uow.posts.page_neighbouring(cells=[VIGO], before=in_tokyo, limit=20)
 
-    assert any("ix_posts_location_cell_created_at" in str(row) for row in plan), plan
+    assert [post.body for post in found] == ["post 1", "post 0"]

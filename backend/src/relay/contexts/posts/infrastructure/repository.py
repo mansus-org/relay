@@ -1,7 +1,7 @@
 """The posts repository: SQLAlchemy statements over the posts table."""
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import Select, select
@@ -27,7 +27,10 @@ def feed_statement(cells: list[str], before: datetime | None, limit: int) -> Sel
         .limit(limit)
     )
     if before is not None:
-        statement = statement.where(PostModel.created_at < before)
+        # Compared in UTC, the one zone the column is written in. SQLite keeps no offset
+        # of its own, so a page asked for from another zone would otherwise be read as
+        # that zone's wall clock and start at the wrong instant.
+        statement = statement.where(PostModel.created_at < before.astimezone(UTC))
     return statement
 
 

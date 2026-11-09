@@ -7,8 +7,10 @@ from uuid import UUID, uuid4
 import h3
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from relay.contexts.posts.infrastructure.models import PostModel
 from relay.main import create_app
 from relay.shared.config import Settings
 from tests.fakes.clock import SteppingClock
@@ -37,6 +39,21 @@ async def say(http: AsyncClient, body: str, **fields: object) -> dict:
     response = await http.post("/api/posts", json={"body": body, **fields}, headers=as_())
     assert response.status_code == 201, response.text
     return response.json()
+
+
+@pytest.fixture
+async def taken_down(api: AsyncClient, migrated_engine: AsyncEngine) -> str:
+    """A post moderation has since removed. No endpoint can do that yet, so the row does."""
+    post = await say(api, "Rude, apparently.", location_cell=VIGO)
+    async with migrated_engine.begin() as conn:
+        await conn.run_sync(
+            lambda sync_conn: sync_conn.execute(
+                update(PostModel)
+                .where(PostModel.id == UUID(post["id"]))
+                .values(moderation_status="removed")
+            )
+        )
+    return post["id"]
 
 
 # Writing.
@@ -91,6 +108,64 @@ async def test_a_post_over_what_the_compose_screen_allows_is_refused(api: AsyncC
     assert "500" in response.json()["detail"]
 
 
+async def test_a_post_of_exactly_what_the_compose_screen_allows_is_taken(api: AsyncClient) -> None:
+    assert len((await say(api, "a" * 500))["body"]) == 500
+
+
+async def test_a_post_only_over_the_limit_once_the_spaces_go_is_taken(api: AsyncClient) -> None:
+    """What is counted is what was said, not the whitespace a phone leaves around it."""
+    post = await say(api, f"  {'a' * 500}  ")
+
+    assert post["body"] == "a" * 500
+
+
+@pytest.mark.parametrize("said", [{}, {"body": None}, {"body": 4}])
+async def test_a_post_with_no_body_at_all_is_refused(api: AsyncClient, said: dict) -> None:
+    """No body, a null body, a number for a body: the client is wrong, not the writer."""
+    response = await api.post("/api/posts", json=said, headers=as_())
+
+    assert response.status_code == 422
+
+
+async def test_a_locality_said_as_nothing_at_all_is_no_locality(api: AsyncClient) -> None:
+    """An empty cell is the same as not saying where: kept, and in no locality feed."""
+    post = await say(api, "Somewhere, maybe.", location_cell="   ")
+
+    assert post["location_cell"] is None
+    assert (await api.get("/api/feed", params={"cell": VIGO})).json()["posts"] == []
+
+
+@pytest.mark.parametrize("cell", ["not-a-cell", "a" * 40])
+async def test_a_post_said_in_a_cell_no_feed_reads_is_refused(api: AsyncClient, cell: str) -> None:
+    """A post filed where no feed looks is a post its author never sees again."""
+    response = await api.post(
+        "/api/posts", json={"body": "Somewhere.", "location_cell": cell}, headers=as_()
+    )
+
+    assert response.status_code == 400
+    assert "H3 cell" in response.json()["detail"]
+
+
+async def test_a_post_said_in_a_cell_at_the_wrong_resolution_is_refused(api: AsyncClient) -> None:
+    """A res-9 cell matches no feed query, so it is refused rather than quietly stored."""
+    response = await api.post(
+        "/api/posts",
+        json={"body": "Somewhere.", "location_cell": h3.cell_to_children(VIGO)[0]},
+        headers=as_(),
+    )
+
+    assert response.status_code == 400
+
+
+async def test_a_cell_written_in_uppercase_lands_where_the_feed_reads_it(api: AsyncClient) -> None:
+    """One form on the way in, or the post is filed somewhere no read ever asks about."""
+    post = await say(api, "Said in the right place.", location_cell=VIGO.upper())
+
+    assert post["location_cell"] == VIGO
+    body = (await api.get("/api/feed", params={"cell": VIGO})).json()
+    assert [post["body"] for post in body["posts"]] == ["Said in the right place."]
+
+
 # Reading a locality.
 
 
@@ -137,6 +212,8 @@ async def test_the_feed_pages_and_tells_you_where_the_next_page_starts(api: Asyn
     first = (await api.get("/api/feed", params={"cell": VIGO})).json()
     assert len(first["posts"]) == 20
     assert first["next_cursor"] is not None
+    # A `+` in a query string arrives as a space, which is no longer a timestamp.
+    assert "+" not in first["next_cursor"]
 
     second = (
         await api.get("/api/feed", params={"cell": VIGO, "cursor": first["next_cursor"]})
@@ -167,17 +244,42 @@ async def test_a_cell_at_the_wrong_resolution_is_refused(api: AsyncClient) -> No
     assert response.status_code == 400
 
 
-@pytest.mark.parametrize("radius", [0, -1, 26])
+@pytest.mark.parametrize("radius", [0, -1, 25.1, 26, float("nan"), float("inf")])
 async def test_the_feed_refuses_a_radius_that_would_read_too_far(
-    api: AsyncClient, radius: int
+    api: AsyncClient, radius: float
 ) -> None:
+    """Including the two radii that are not distances at all: a radius that reads the
+    whole planet, or no distance, is the client's mistake to hear about."""
     assert (await api.get("/api/feed", params={"cell": VIGO, "radius": radius})).status_code == 400
+
+
+async def test_the_widest_radius_the_feed_will_read_is_read(api: AsyncClient) -> None:
+    """25 km is the ceiling and it is inclusive, so it is answered, not refused."""
+    await say(api, "Down the road.", location_cell=VIGO)
+
+    response = await api.get("/api/feed", params={"cell": VIGO, "radius": 25})
+
+    assert response.status_code == 200
+    assert [post["body"] for post in response.json()["posts"]] == ["Down the road."]
 
 
 async def test_a_cursor_this_feed_never_handed_out_is_refused(api: AsyncClient) -> None:
     response = await api.get("/api/feed", params={"cell": VIGO, "cursor": "yesterday"})
 
     assert response.status_code == 400
+
+
+async def test_an_empty_cursor_is_not_a_page(api: AsyncClient) -> None:
+    """A client that clears its cursor may still send the parameter, and that is not a time."""
+    assert (await api.get("/api/feed", params={"cell": VIGO, "cursor": ""})).status_code == 400
+
+
+async def test_a_post_taken_down_is_out_of_the_feed(api: AsyncClient, taken_down: str) -> None:
+    assert (await api.get("/api/feed", params={"cell": VIGO})).json()["posts"] == []
+
+
+async def test_a_post_taken_down_reports_itself_gone(api: AsyncClient, taken_down: str) -> None:
+    assert (await api.get(f"/api/posts/{taken_down}")).status_code == 404
 
 
 # Reading one post.

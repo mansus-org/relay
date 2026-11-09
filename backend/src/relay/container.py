@@ -3,7 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from relay.contexts.location.application import ResolvePostalCode
 from relay.contexts.location.infrastructure import DatasetPostalCodeDirectory, H3CellEncoder
 from relay.contexts.posts.application import CreatePost, GetFeed, GetPost, PostsUnitOfWork
-from relay.contexts.posts.infrastructure import H3CellNeighbourhood, SqlAlchemyPostsUnitOfWork
+from relay.contexts.posts.infrastructure import (
+    H3CellNeighbourhood,
+    H3CellStandard,
+    SqlAlchemyPostsUnitOfWork,
+)
 from relay.shared.application import Clock, UnitOfWork
 from relay.shared.application.health import GetHealth
 from relay.shared.config import Settings
@@ -24,6 +28,7 @@ class Container:
         clock: Clock | None = None,
         postal_codes: DatasetPostalCodeDirectory | None = None,
         neighbourhood: H3CellNeighbourhood | None = None,
+        cells: H3CellStandard | None = None,
     ) -> None:
         self.settings = settings
         self.session_factory = session_factory
@@ -32,6 +37,8 @@ class Container:
         self.postal_codes = postal_codes or DatasetPostalCodeDirectory()
         # How far a feed reaches, in cells. Same cut the client sends its cell with.
         self.neighbourhood = neighbourhood or H3CellNeighbourhood()
+        # What counts as a cell at all, so nothing is filed where no feed will look.
+        self.cells = cells or H3CellStandard()
 
     def unit_of_work(self) -> UnitOfWork:
         return SqlAlchemyUnitOfWork(self.session_factory)
@@ -46,7 +53,7 @@ class Container:
         return ResolvePostalCode(directory=self.postal_codes, cells=H3CellEncoder())
 
     def get_create_post(self) -> CreatePost:
-        return CreatePost(uow=self.posts_unit_of_work(), clock=self.clock)
+        return CreatePost(uow=self.posts_unit_of_work(), clock=self.clock, cells=self.cells)
 
     def get_feed(self) -> GetFeed:
         return GetFeed(uow=self.posts_unit_of_work(), neighbourhood=self.neighbourhood)
