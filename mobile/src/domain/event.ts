@@ -79,7 +79,9 @@ export const placeEvent = <T extends Event>(
   return { ...event, at, distanceKm: at && from ? distanceKm(from, at) : null }
 }
 
-const DAY_MS = 86_400_000
+export const DAY_MS = 86_400_000
+export const MINUTE_MS = 60_000
+export const HOUR_MS = 3_600_000
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -89,21 +91,24 @@ const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(),
 /** Whole calendar days from `from` to `to`; rounding absorbs the DST hour so a day is a day. */
 const daysApart = (from: Date, to: Date) => Math.round((startOfDay(to).getTime() - startOfDay(from).getTime()) / DAY_MS)
 
+/** The formatters take ISO from the server or a Date from a picker; both name the same instant. */
+const asDate = (value: Date | string): Date => (typeof value === 'string' ? new Date(value) : value)
+
 /** "19:30". Relay is in Portuguese and Spanish, and the mockups are on the 24-hour clock. */
-export const formatEventTime = (instant: string): string => {
-  const date = new Date(instant)
+export const formatEventTime = (instant: Date | string): string => {
+  const date = asDate(instant)
   return Number.isNaN(date.getTime()) ? '' : `${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 /** "Sat, Oct 25" — the day an event falls on, in the reader's own calendar. */
-export const formatEventDate = (instant: string): string => {
-  const date = new Date(instant)
+export const formatEventDate = (instant: Date | string): string => {
+  const date = asDate(instant)
   return Number.isNaN(date.getTime()) ? '' : `${DAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}`
 }
 
 /** The small line in a row's time block: the day, once you stop needing the word "today". */
-export const eventDayLabel = (instant: string, now: Date): string => {
-  const date = new Date(instant)
+export const eventDayLabel = (instant: Date | string, now: Date): string => {
+  const date = asDate(instant)
   if (Number.isNaN(date.getTime())) return ''
   const apart = daysApart(now, date)
   if (apart <= 0) return 'Today'

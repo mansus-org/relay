@@ -68,7 +68,15 @@ export const makeHttpEventRepository = ({ http }: { http: AxiosInstance }): Even
   async create(event) {
     try {
       // starts_at has to carry a zone, and location_cell has to be a real resolution-8 cell.
-      const { data } = await http.post<EventDto>(EVENTS_PATH, event)
+      const payload = {
+        title: event.title,
+        starts_at: event.startsAt,
+        ...(event.endsAt ? { ends_at: event.endsAt } : {}),
+        ...(event.venueName ? { venue_name: event.venueName } : {}),
+        ...(event.details ? { details: event.details } : {}),
+        ...(event.locationCell ? { location_cell: event.locationCell } : {}),
+      }
+      const { data } = await http.post<EventDto>(EVENTS_PATH, payload)
       return ok(toEvent(data))
     } catch (error) {
       return err(toEventError(error, 'unexpected'))

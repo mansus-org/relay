@@ -9,9 +9,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "org.mansus.relay",
-      "associatedDomains": [
-        "applinks:relay.mansus.org"
-      ]
+      "associatedDomains": ["applinks:relay.mansus.org"]
     },
     "android": {
       "adaptiveIcon": {
@@ -26,17 +24,8 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "data": [
-            {
-              "scheme": "https",
-              "host": "relay.mansus.org",
-              "pathPrefix": "/join"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "data": [{ "scheme": "https", "host": "relay.mansus.org", "pathPrefix": "/join" }],
+          "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
     },
@@ -63,8 +52,7 @@
           "backgroundColor": "#f0e6d2"
         }
       ],
-      "expo-font",
-      "expo-maps"
+      "expo-font"
     ],
     "scheme": "relay"
   }

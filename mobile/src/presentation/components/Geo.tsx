@@ -1,5 +1,5 @@
 import Svg, { Defs, Path, Pattern, Rect } from 'react-native-svg'
-import { View, type ViewStyle } from 'react-native'
+import { StyleSheet, View, type ViewStyle } from 'react-native'
 
 import { colors } from '../theme'
 
@@ -55,6 +55,20 @@ export function GridPaperDark() {
         </Pattern>
       </Defs>
       <Rect width="100%" height="100%" fill="url(#grid)" />
+    </Svg>
+  )
+}
+
+/** The same graph paper the other way round, for a light surface: faint ink lines on paper. */
+export function GridPaperLight() {
+  return (
+    <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
+      <Defs>
+        <Pattern id="grid-light" width={26} height={26} patternUnits="userSpaceOnUse">
+          <Path d="M26 0 H0 V26" fill="none" stroke={colors.ink} strokeOpacity={0.09} strokeWidth={1} />
+        </Pattern>
+      </Defs>
+      <Rect width="100%" height="100%" fill="url(#grid-light)" />
     </Svg>
   )
 }
