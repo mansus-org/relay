@@ -2,7 +2,8 @@
 
 How the Python backend in [`backend/`](../backend/) is built and how to extend
 it. It replaces the old Go node; today it ships the
-skeleton, `GET /api/health` and `GET /api/location/postal-code/{postal_code}`.
+skeleton, `GET /api/health`, the `location` context (postal code to H3 cell) and
+the `posts` context (say something, read a locality's feed).
 Quickstart: [`backend/README.md`](../backend/README.md).
 
 Everything runs through [uv](https://docs.astral.sh/uv/): `uv sync`,
@@ -43,6 +44,9 @@ contexts/posts/
   infrastructure/  # PostModel (ORM), SqlAlchemyPostRepository, unit of work
   api/             # router, request/response schemas, providers
 ```
+
+That one is not an example: `contexts/posts/` is there and is the context to
+copy when adding another.
 
 Then: add the layers to the import-linter contracts, import the ORM models in
 `migrations/env.py` (so autogenerate sees them), create a migration
