@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from relay.contexts.auth.domain.invite import Invite
 from relay.contexts.auth.domain.tokens import ACCESS_LIFETIME
+from relay.contexts.auth.domain.user import MAX_DISPLAY_NAME_CHARS
 from relay.contexts.auth.infrastructure.jwt import JwtTokenBroker
 from relay.main import create_app
 from relay.shared.application import Clock
@@ -244,6 +245,51 @@ async def test_an_access_token_that_ran_out_is_401(app: FastAPI, http: AsyncClie
     assert response.headers.get("www-authenticate") == "Bearer"
 
 
+async def test_you_can_change_what_relay_calls_you(app: FastAPI, http: AsyncClient) -> None:
+    tokens = await register(http, app)
+
+    response = await http.patch(
+        "/api/auth/me", json={"display_name": "Ada L."}, headers=bearer(tokens["access_token"])
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": 1,
+        "username": "ada_lovelace",
+        "display_name": "Ada L.",
+        "is_admin": False,
+    }
+    me = await http.get("/api/auth/me", headers=bearer(tokens["access_token"]))
+    assert me.json()["display_name"] == "Ada L."
+
+
+@pytest.mark.parametrize(
+    ("value", "rule"),
+    [("   ", "cannot be empty"), ("x" * (MAX_DISPLAY_NAME_CHARS + 1), "at most 60 characters")],
+)
+async def test_a_display_name_that_breaks_a_rule_says_which_one(
+    app: FastAPI, http: AsyncClient, value: str, rule: str
+) -> None:
+    tokens = await register(http, app)
+
+    response = await http.patch(
+        "/api/auth/me", json={"display_name": value}, headers=bearer(tokens["access_token"])
+    )
+
+    assert response.status_code == 400
+    assert rule in response.json()["detail"]
+    # And the old name is still the name.
+    me = await http.get("/api/auth/me", headers=bearer(tokens["access_token"]))
+    assert me.json()["display_name"] == "Ada Lovelace"
+
+
+async def test_renaming_yourself_is_still_a_call_that_needs_a_token(http: AsyncClient) -> None:
+    response = await http.patch("/api/auth/me", json={"display_name": "Anyone At All"})
+
+    assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "Bearer"
+
+
 async def test_a_refresh_token_buys_a_new_pair_and_spends_itself(
     app: FastAPI, http: AsyncClient
 ) -> None:
@@ -309,3 +355,4 @@ async def test_the_auth_endpoints_are_documented(http: AsyncClient) -> None:
         paths
     )
     assert "409" in paths["/api/auth/register"]["post"]["responses"]
+    assert "patch" in paths["/api/auth/me"]

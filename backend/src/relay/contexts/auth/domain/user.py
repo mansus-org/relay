@@ -11,9 +11,11 @@ from relay.contexts.auth.domain.errors import (
 from relay.contexts.auth.domain.models import RelationalEntity
 from relay.shared.domain import ValueObject
 
+MIN_USERNAME_CHARS = 3
+MAX_USERNAME_CHARS = 20
 # A handle you can type on a phone: lowercase letters, digits, dot, dash, underscore.
 # Lowercase on purpose: "Ada" and "ada" are the same person and get the same account.
-_USERNAME = re.compile(r"^[a-z0-9._-]{3,20}$")
+_USERNAME = re.compile(rf"^[a-z0-9._-]{{{MIN_USERNAME_CHARS},{MAX_USERNAME_CHARS}}}$")
 
 MIN_PASSWORD_CHARS = 8
 # bcrypt reads the first 72 bytes and nothing after them, so a longer password is a false promise.
@@ -33,8 +35,8 @@ class Username(ValueObject):
         value = raw.strip().lower()
         if not _USERNAME.match(value):
             raise InvalidUsernameError(
-                "Usernames are 3-20 characters: lowercase letters, numbers, dots, dashes, "
-                "underscores."
+                f"Usernames are {MIN_USERNAME_CHARS}-{MAX_USERNAME_CHARS} characters: "
+                "lowercase letters, numbers, dots, dashes, underscores."
             )
         return cls(value=value)
 

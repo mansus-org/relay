@@ -8,6 +8,7 @@ from relay.contexts.auth.application import (
     ReadAuthenticatedUser,
     RefreshAccessToken,
     RegisterWithInvite,
+    UpdateDisplayName,
 )
 from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
 from relay.contexts.auth.domain.ports import PasswordHasher, TokenBroker
@@ -147,6 +148,9 @@ class Container:
 
     def get_ensure_first_admin(self) -> EnsureFirstAdmin:
         return EnsureFirstAdmin(uow=self.auth_unit_of_work(), hasher=self.hasher)
+
+    def get_update_display_name(self) -> UpdateDisplayName:
+        return UpdateDisplayName(uow=self.auth_unit_of_work())
 
     def _issue_tokens(self, uow: AuthUnitOfWork) -> IssueTokens:
         return IssueTokens(tokens=self.tokens, clock=self.clock, uow=uow)
