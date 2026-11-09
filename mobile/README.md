@@ -21,7 +21,7 @@ The server URL defaults to `https://relay.mansus.org` (changing it from the UI i
 - `assets/icon.svg` is the icon source; `npm run icons` regenerates the PNGs in `assets/` (iOS icon, Android adaptive foreground/background/monochrome, splash, favicon)
 - Tokens live in SecureStore (`access_token`, `refresh_token`). The postal code the web feed last read is in AsyncStorage as `relay.postal_code.v1`. Auth, feed and community endpoint paths are constants in `src/infrastructure/http/endpoints.ts`; the backend
 (RELY-79 rewrite) serves `GET /location/postal-code/{postal_code}` and `/health` and none of the others yet, so the rest of the client is proven against the fakes in `src/testing`.
-- The feed asks for a place differently per platform: native asks the device where it is, web has no GPS and asks for a Spanish postal code (Galicia first). That empty state is `src/presentation/components/PostalCodePrompt.tsx`, driven by the `ask` phase of `useFeed`.
+- The feed asks for a place differently per platform: both ask where they are first — native the device, web the browser (`navigator.geolocation`, https only) — and whatever cannot answer falls back to a Spanish postal code (Galicia first). That empty state is `src/presentation/components/PostalCodePrompt.tsx`, driven by the `ask` phase of `useFeed`.
 
 ## Architecture
 
