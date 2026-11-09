@@ -1,4 +1,4 @@
-"""One page of what is on: the next events in a locality, soonest first."""
+"""One page of what is on: a locality's events, from wherever the reader asked to start."""
 
 from relay.contexts.events.application.unit_of_work import EventsUnitOfWork
 from relay.contexts.events.domain.cells import DEFAULT_RADIUS_KM
@@ -9,7 +9,7 @@ from relay.shared.application import Clock
 
 
 class GetEvents:
-    """Reads a neighbourhood's events soonest first, a page at a time.
+    """Reads a neighbourhood's events a page at a time, in the direction `from` asked for.
 
     The locality filter is the cell and the radius and nothing else: an event planned
     outside the ring, or with no cell at all, is not in this list. The time filter is
@@ -33,7 +33,7 @@ class GetEvents:
         cells = self._neighbourhood.visible_from(cell, radius_km)
         start = ListingStart.read(from_, now=self._clock.now())
         async with self._uow:
-            found = await self._uow.events.page_upcoming(
+            found = await self._uow.events.page_listing(
                 cells=cells, start=start, limit=self.PAGE_SIZE + 1
             )
             # One extra read tells us whether there is more without a second query.
@@ -52,4 +52,4 @@ class GetEvents:
 def _marker(events: list[Event], start: ListingStart) -> ListingStart:
     """Where the next page starts: the last row of this one, reading the same way."""
     last = events[-1]
-    return ListingStart(at=last.starts_at, after_id=last.id, backwards=start.backwards)
+    return ListingStart(at=last.starts_at, last_id=last.id, backwards=start.backwards)

@@ -1,10 +1,12 @@
-"""What is on: a page of upcoming events, and how many people are going to each."""
+"""What is on: a page of a locality's events, and how many people are going to each."""
 
 from datetime import UTC, datetime
 from uuid import UUID
 
-from relay.contexts.events.domain.event import Event, InvalidTimeError, instant
-from relay.shared.domain import ValueObject
+from pydantic import field_validator
+
+from relay.contexts.events.domain.event import Event, instant
+from relay.shared.domain import ValidationError, ValueObject
 
 #: The one word in `from` that means "read the other way": what has already started.
 PAST = "past"
@@ -12,6 +14,10 @@ PAST = "past"
 #: What joins the parts of a page marker. `~` because it is one of the characters a
 #: query string carries without escaping, unlike a space or a `+`.
 SEPARATOR = "~"
+
+
+class UnknownPageError(ValidationError):
+    """Not a place in the listing that Relay ever handed out."""
 
 
 class ListingStart(ValueObject):
@@ -28,26 +34,51 @@ class ListingStart(ValueObject):
     """
 
     at: datetime
-    after_id: UUID | None = None
+    last_id: UUID | None = None
     backwards: bool = False
+
+    @field_validator("at")
+    @classmethod
+    def _zone_named(cls, at: datetime) -> datetime:
+        """Kept in UTC, and never a time that forgot to say which zone it is in.
+
+        A zone-less time would be read as the machine's own clock, and the page would
+        cut at a different instant on every machine that runs it.
+        """
+        if at.tzinfo is None:
+            raise ValueError("A page starts from a time that says which zone it is in.")
+        return at.astimezone(UTC)
 
     @classmethod
     def read(cls, value: str | None, *, now: datetime) -> "ListingStart":
-        """Where `from` says to start reading: a date, an instant, `past`, or a marker.
+        """Where `from` says to start reading, in this grammar and no other::
 
-        No `from` is the default wall — now, forwards. A date (`2026-03-04`) is that
-        midnight in UTC and a full instant is itself, so the same word pages forwards
-        from anywhere. `past` flips the direction, and a marker handed back by the page
-        before is that same word with the last row of it stuck on the end.
+            past
+            <instant>
+            <instant>~<id>
+            past~<instant>
+            past~<instant>~<id>
+
+        Nothing is the default wall: now, forwards, and `past` on its own is now read
+        the other way. A date (`2026-03-04`) is that midnight in UTC and a full instant
+        is itself, so the same word pages from anywhere. The `<instant>~<id>` shape is
+        the marker a page handed back: the last row it showed, and the direction to keep
+        reading in.
         """
         written = (value or "").strip()
-        backwards = written.lower().startswith(PAST)
+        if not written:
+            return cls(at=now)
+        parts = written.split(SEPARATOR)
+        backwards = parts[0].lower() == PAST
         if backwards:
-            written = written.removeprefix(PAST).removeprefix(SEPARATOR).strip()
-        at, _, last = written.partition(SEPARATOR)
+            parts = parts[1:]
+        if len(parts) > 2 or not all(parts):
+            raise UnknownPageError("That is not a page Relay handed out.")
+        wall = parts[0] if parts else ""
+        last = parts[1] if len(parts) == 2 else ""
         return cls(
-            at=instant(at) if at else now,
-            after_id=_row(last) if last else None,
+            at=instant(wall) if wall else now,
+            last_id=_row(last) if last else None,
             backwards=backwards,
         )
 
@@ -58,8 +89,8 @@ class ListingStart(ValueObject):
         time it arrives, and a page marker is only any use if it comes back whole.
         """
         written = self.at.astimezone(UTC).isoformat().replace("+00:00", "Z")
-        if self.after_id is not None:
-            written = f"{written}{SEPARATOR}{self.after_id}"
+        if self.last_id is not None:
+            written = f"{written}{SEPARATOR}{self.last_id}"
         return f"{PAST}{SEPARATOR}{written}" if self.backwards else written
 
 
@@ -68,7 +99,7 @@ def _row(last: str) -> UUID:
     try:
         return UUID(last)
     except ValueError as error:
-        raise InvalidTimeError("That is not a page Relay handed out.") from error
+        raise UnknownPageError("That is not a page Relay handed out.") from error
 
 
 class EventDetails(ValueObject):
@@ -87,7 +118,7 @@ class EventDetails(ValueObject):
 
 
 class EventListingPage(ValueObject):
-    """Soonest first, and the marker the next page starts at."""
+    """The rows of one page, in the order they were read, and the marker for the next."""
 
     events: tuple[EventDetails, ...]
     next_from: ListingStart | None = None

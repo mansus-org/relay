@@ -16,7 +16,7 @@ from relay.contexts.events.domain.listing import ListingStart
 from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp
 from relay.contexts.events.infrastructure.h3_cells import rings_for
 from relay.contexts.events.infrastructure.models import EventModel
-from relay.contexts.events.infrastructure.repository import upcoming_statement
+from relay.contexts.events.infrastructure.repository import listing_statement
 from relay.contexts.events.infrastructure.unit_of_work import SqlAlchemyEventsUnitOfWork
 from relay.shared.application import Clock
 from relay.shared.infrastructure.database import create_session_factory
@@ -70,7 +70,7 @@ async def seed(uow: SqlAlchemyEventsUnitOfWork, *events: Event) -> None:
 async def listing(
     uow: SqlAlchemyEventsUnitOfWork, cells: list[str], start: ListingStart | None = None
 ):
-    return await uow.events.page_upcoming(
+    return await uow.events.page_listing(
         cells=cells, start=start or ListingStart(at=STARTS), limit=20
     )
 
@@ -160,6 +160,26 @@ async def test_an_event_that_already_started_is_not_coming_up(
     assert [event.title for event in await listing(uow, [VIGO])] == ["later"]
 
 
+async def test_an_event_starting_at_the_wall_is_on_the_page_asked_for_that_wall(
+    uow: SqlAlchemyEventsUnitOfWork,
+) -> None:
+    """A date somebody typed is the day, and what starts at that midnight is on it."""
+    await seed(uow, planned("at the wall", hours=0), planned("later", hours=1))
+
+    assert [event.title for event in await listing(uow, [VIGO])] == ["at the wall", "later"]
+
+
+async def test_an_event_starting_at_the_wall_is_not_in_the_past_yet(
+    uow: SqlAlchemyEventsUnitOfWork,
+) -> None:
+    """The wall belongs to the forwards page in both directions: starting now is not started."""
+    await seed(uow, planned("starting now", hours=0), planned("last week", hours=-24))
+
+    back = await listing(uow, [VIGO], start=ListingStart(at=STARTS, backwards=True))
+
+    assert [event.title for event in back] == ["last week"]
+
+
 async def test_a_page_of_nothing_asks_for_no_counts(uow: SqlAlchemyEventsUnitOfWork) -> None:
     """An empty locality reads as empty, and the counts are never asked for nothing.
 
@@ -186,9 +206,10 @@ async def test_a_page_read_backwards_reads_the_recent_past_first(
 async def test_a_page_stops_where_it_was_told_to(uow: SqlAlchemyEventsUnitOfWork) -> None:
     await seed(uow, *[planned(f"event {n}", hours=n) for n in range(5)])
 
-    found = await uow.events.page_upcoming(cells=[VIGO], start=ListingStart(at=STARTS), limit=2)
+    found = await uow.events.page_listing(cells=[VIGO], start=ListingStart(at=STARTS), limit=2)
 
-    assert [event.title for event in found] == ["event 1", "event 2"]
+    # The first of them starts at the wall and is on the page; the third is not.
+    assert [event.title for event in found] == ["event 0", "event 1"]
 
 
 async def test_a_page_starts_at_the_same_instant_when_the_time_comes_in_another_zone(
@@ -202,6 +223,7 @@ async def test_a_page_starts_at_the_same_instant_when_the_time_comes_in_another_
     assert [
         event.title for event in await listing(uow, [VIGO], start=ListingStart(at=in_tokyo))
     ] == [
+        "event 3",
         "event 4",
     ]
 
@@ -216,10 +238,10 @@ async def test_events_sharing_a_start_time_still_come_out_a_page_at_a_time(
     """
     await seed(uow, *[planned(f"choir {n}", hours=1) for n in range(25)])
 
-    first = await uow.events.page_upcoming(cells=[VIGO], start=ListingStart(at=STARTS), limit=20)
-    second = await uow.events.page_upcoming(
+    first = await uow.events.page_listing(cells=[VIGO], start=ListingStart(at=STARTS), limit=20)
+    second = await uow.events.page_listing(
         cells=[VIGO],
-        start=ListingStart(at=first[-1].starts_at, after_id=first[-1].id),
+        start=ListingStart(at=first[-1].starts_at, last_id=first[-1].id),
         limit=20,
     )
 
@@ -238,10 +260,10 @@ async def test_a_page_read_backwards_stops_where_it_was_told_to(
     await seed(uow, *[planned(f"event {n}", hours=-(n + 1)) for n in range(5)])
 
     wall = ListingStart(at=STARTS, backwards=True)
-    first = await uow.events.page_upcoming(cells=[VIGO], start=wall, limit=2)
-    second = await uow.events.page_upcoming(
+    first = await uow.events.page_listing(cells=[VIGO], start=wall, limit=2)
+    second = await uow.events.page_listing(
         cells=[VIGO],
-        start=ListingStart(at=first[-1].starts_at, after_id=first[-1].id, backwards=True),
+        start=ListingStart(at=first[-1].starts_at, last_id=first[-1].id, backwards=True),
         limit=2,
     )
 
@@ -410,8 +432,13 @@ async def plan_for(engine: AsyncEngine, statement: Select) -> str:
     return "\n".join(" ".join(str(cell) for cell in row) for row in found)
 
 
+@pytest.mark.parametrize(
+    "start",
+    [ListingStart(at=STARTS), ListingStart(at=STARTS, last_id=uuid4())],
+    ids=["from a date", "from a marker"],
+)
 async def test_the_listing_walks_the_index_it_was_given(
-    migrated_engine: AsyncEngine,
+    migrated_engine: AsyncEngine, start: ListingStart
 ) -> None:
     """The index the migration built had better be the one the listing reads through.
 
@@ -420,6 +447,10 @@ async def test_the_listing_walks_the_index_it_was_given(
     in which an index earns its keep. Asked at the default 10 km instead, the same
     listing names 397 cells at once and Postgres reads the table for it, so this is the
     tight-radius shape the index was built for and not the only one the endpoint serves.
+
+    The marker page is the one worth reading the plan for: its cut is a row pair, and a
+    database that could not see through that pair would read the whole locality again on
+    every page after the first.
     """
     walking = h3.grid_disk(VIGO, rings_for(0.5))
     away = [cell for cell in h3.grid_disk(A_CORUNA, 12)[::2][:200] if cell not in walking]
@@ -428,6 +459,6 @@ async def test_the_listing_walks_the_index_it_was_given(
         payload += rows(cell, 49, index * 49)
     await load(migrated_engine, payload)
 
-    plan = await plan_for(migrated_engine, upcoming_statement(walking, ListingStart(at=STARTS), 21))
+    plan = await plan_for(migrated_engine, listing_statement(walking, start, 21))
 
     assert "ix_events_location_cell_starts_at" in plan, plan

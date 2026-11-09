@@ -117,7 +117,10 @@ class EventResponse(BaseModel):
 
 
 class EventListResponse(BaseModel):
-    """Soonest first. `next_from` is null once there is nothing left to ask for."""
+    """The rows of one page, in the order they were read.
+
+    `next_from` is null once there is nothing left to ask for.
+    """
 
     events: list[EventResponse]
     next_from: str | None = None
@@ -151,9 +154,7 @@ class RsvpResponse(BaseModel):
     """What saying you are going came to: the event, and the tally beside it now.
 
     There is no list of names behind the number, and a second tap is a 409 rather than
-    a second place. The count is read after this call has landed, so it includes you; it
-    may also include someone who said they were coming in the same moment, because two
-    people can RSVP to the same supper at once and neither is wrong.
+    a second place.
     """
 
     event_id: str
@@ -258,7 +259,7 @@ async def create_event(
 @router.get(
     "/events",
     response_model=EventListResponse,
-    summary="What is on nearby, soonest first",
+    summary="What is on nearby",
     description=(
         "Events starting after `from` within `radius` km of `cell`, which is the "
         "reader's current H3 resolution-8 cell. `from` is a date (2026-03-04) or a full "

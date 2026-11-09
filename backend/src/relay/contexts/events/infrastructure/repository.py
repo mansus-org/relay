@@ -15,27 +15,34 @@ from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp
 from relay.contexts.events.infrastructure.models import EventModel, RsvpModel
 
 
-def upcoming_statement(cells: list[str], start: ListingStart, limit: int) -> Select:
-    """One page of what is on, in the order the listing reads it.
+def listing_statement(cells: list[str], start: ListingStart, limit: int) -> Select:
+    """One page of the listing, in the direction it was asked to be read.
 
     `IN` leaves out the events that named no locality at all, which is what keeps them
     out of every locality's list. The page is cut at a row and not at an instant:
     `(starts_at, id)` compared as a pair, because hosts pick start times and a town's
     events all start at seven — a cut at "after seven" would drop every other event at
-    seven that did not fit on the page. Built here rather than inline so the query the
-    repository runs is the query a test can put under EXPLAIN.
+    seven that did not fit on the page. Postgres reads that pair back into an indexable
+    `starts_at >= :wall`, so the marker costs no more than a plain date would. Built
+    here rather than inline so the query the repository runs is the query a test can put
+    under EXPLAIN.
     """
     statement = select(EventModel).where(EventModel.location_cell.in_(cells))
     # The wall is bound in UTC however the marker was written. On Postgres an instant is
     # an instant; on SQLite the column holds UTC text and a wall in another zone would
     # be compared as the words for that other clock, and cut the page in the wrong place.
     wall = start.at.astimezone(UTC)
-    if start.after_id is None:
-        # The first page starts at a bare wall, with no row yet to break a tie with.
+    if start.last_id is None:
+        # A date somebody typed, and what starts exactly at it belongs on their page.
+        # `past` asks for what has already started, so the event at the wall exactly is
+        # in neither: it is starting now, which is nobody's past.
         cut, bound = EventModel.starts_at, wall
+        keep = cut < bound if start.backwards else cut >= bound
     else:
-        cut, bound = tuple_(EventModel.starts_at, EventModel.id), (wall, start.after_id)
-    statement = statement.where(cut < bound if start.backwards else cut > bound)
+        # A marker names a row already read, so it cuts strictly past itself either way.
+        cut, bound = tuple_(EventModel.starts_at, EventModel.id), (wall, start.last_id)
+        keep = cut < bound if start.backwards else cut > bound
+    statement = statement.where(keep)
     order = (
         (EventModel.starts_at.desc(), EventModel.id.desc())
         if start.backwards
@@ -57,10 +64,10 @@ class SqlAlchemyEventRepository(EventRepository):
     async def add(self, entity: Event) -> None:
         self._session.add(EventModel.from_domain(entity))
 
-    async def page_upcoming(
+    async def page_listing(
         self, *, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
-        statement = upcoming_statement(list(cells), start, limit)
+        statement = listing_statement(list(cells), start, limit)
         rows = (await self._session.execute(statement)).scalars()
         return [row.to_domain() for row in rows]
 

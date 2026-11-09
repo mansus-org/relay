@@ -43,7 +43,7 @@ def instant(value: datetime | str) -> datetime:
     back as a query parameter and has to survive the trip. A datetime that names no zone
     is read as UTC, because UTC is the zone events are stored in and a time kept in
     another one would compare off by its offset. An event's own start is read with
-    `placed_instant` instead, which refuses the zone-less case rather than guessing.
+    `zoned_instant` instead, which refuses the zone-less case rather than guessing.
     """
     read = _read(value)
     if read.tzinfo is None:
@@ -55,7 +55,7 @@ def instant(value: datetime | str) -> datetime:
         raise InvalidTimeError("That is not a time Relay can read.") from error
 
 
-def placed_instant(value: datetime | str) -> datetime:
+def zoned_instant(value: datetime | str) -> datetime:
     """An instant that says which zone it is in, or InvalidTimeError saying it does not.
 
     A host's half past seven is half past seven somewhere, and read without a zone it is
@@ -113,11 +113,13 @@ class Event(Entity):
         where = (venue_name or "").strip()
         if len(where) > MAX_VENUE_LENGTH:
             raise ValidationError(f"A venue is named in at most {MAX_VENUE_LENGTH} characters.")
-        starts = placed_instant(starts_at)
+        starts = zoned_instant(starts_at)
         # An end sent as blanks is a form field cleared, not a time: the event goes on
         # for as long as it goes on, which is what not saying when reads as.
-        written_end = ends_at if not isinstance(ends_at, str) or ends_at.strip() else None
-        ends = placed_instant(written_end) if written_end is not None else None
+        written_end = ends_at
+        if isinstance(written_end, str) and not written_end.strip():
+            written_end = None
+        ends = zoned_instant(written_end) if written_end is not None else None
         if ends is not None and ends <= starts:
             raise ValidationError("An event cannot end at or before it starts.")
         return cls(

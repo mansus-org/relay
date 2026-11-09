@@ -6,7 +6,8 @@ from uuid import uuid4
 import pytest
 
 from relay.contexts.events.application import GetEvents
-from relay.contexts.events.domain.event import Event, InvalidTimeError
+from relay.contexts.events.domain.event import Event
+from relay.contexts.events.domain.listing import UnknownPageError
 from tests.fakes.clock import FixedClock
 from tests.fakes.events import FakeEventsUnitOfWork, FixedNeighbourhood, an_event, going_to
 
@@ -104,7 +105,7 @@ async def test_a_page_is_a_page_and_not_the_whole_calendar() -> None:
 
     assert len(page.events) == 20
     assert page.next_from.at == NOW + timedelta(hours=20)
-    assert page.next_from.after_id == page.events[-1].event.id
+    assert page.next_from.last_id == page.events[-1].event.id
 
 
 async def test_the_last_page_promises_no_more() -> None:
@@ -154,14 +155,15 @@ async def test_a_marker_no_page_ever_handed_out_is_refused() -> None:
     """A `from` made up rather than handed back is the client's mistake to hear about."""
     uow = FakeEventsUnitOfWork(planned("one"))
 
-    with pytest.raises(InvalidTimeError):
+    with pytest.raises(UnknownPageError):
         await read(uow, from_="2026-03-04T18:00:00Z~not-the-row-it-stopped-on")
 
 
 async def test_the_page_starts_at_the_instant_it_was_asked_for() -> None:
+    """The event that starts at the wall is on the page: `from` is where the reading picks up."""
     uow = FakeEventsUnitOfWork(planned("one", "two", "three"))
 
-    page = await read(uow, from_=str(NOW + timedelta(hours=1)))
+    page = await read(uow, from_=str(NOW + timedelta(hours=2)))
 
     assert [details.event.title for details in page.events] == ["two", "three"]
 
@@ -170,7 +172,7 @@ async def test_the_page_starts_at_the_same_instant_when_the_date_comes_in_anothe
     """`from` is an instant, not a wall-clock reading, whichever way it was written."""
     uow = FakeEventsUnitOfWork(planned("one", "two", "three"))
 
-    in_tokyo = (NOW + timedelta(hours=1)).astimezone(TOKYO).isoformat()
+    in_tokyo = (NOW + timedelta(hours=2)).astimezone(TOKYO).isoformat()
     page = await read(uow, from_=in_tokyo)
 
     assert [details.event.title for details in page.events] == ["two", "three"]

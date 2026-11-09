@@ -395,11 +395,14 @@ async def test_exactly_one_page_of_events_promises_no_second_one(api: AsyncClien
 async def test_a_page_asked_for_from_another_zone_starts_at_the_same_instant(
     api: AsyncClient,
 ) -> None:
-    """`from` is an instant, not a reading of one wall clock."""
+    """`from` is an instant, not a reading of one wall clock.
+
+    The event at that instant is on the page, whichever zone the wall was written in.
+    """
     for index in range(3):
         await plan(api, f"event {index}", starts_at=at(index + 1), location_cell=VIGO)
 
-    in_tokyo = (NOW + timedelta(hours=1)).astimezone(TOKYO).isoformat()
+    in_tokyo = (NOW + timedelta(hours=2)).astimezone(TOKYO).isoformat()
     response = await api.get("/api/events", params={"cell": VIGO, "from": in_tokyo})
 
     assert [event["title"] for event in response.json()["events"]] == ["event 1", "event 2"]
@@ -446,13 +449,18 @@ async def test_the_list_refuses_a_radius_that_would_read_too_far(
         "1700000000",
         "9999-12-31T23:59:59-01:00",
         "2030-05-11T00:30:00Z~not-a-row",
+        "~",
+        "past~",
+        "2030-05-11T00:30:00Z~abc~extra",
     ],
 )
 async def test_a_start_this_list_never_handed_out_is_refused(api: AsyncClient, from_: str) -> None:
     """A client that clears its marker may still send the parameter, and that is not a date.
 
-    The last one is shaped like a marker this list hands out and was not: a made-up row is
-    as unusable as a made-up day.
+    The last three are shaped like a marker this list hands out and were not: a made-up row
+    is as unusable as a made-up day, and so is a half of one. `from` is one grammar, and a
+    page request that does not fit it is a 400 rather than a silent reading of something
+    else.
     """
     response = await api.get("/api/events", params={"cell": VIGO, "from": from_})
 
@@ -482,20 +490,21 @@ async def test_a_start_that_arrived_with_a_space_where_the_plus_was(api: AsyncCl
     assert response.status_code == 400
 
 
-async def test_an_event_starting_exactly_at_the_start_is_not_on_the_page(
+async def test_an_event_starting_exactly_at_a_written_start_is_on_the_page(
     api: AsyncClient,
 ) -> None:
-    """`from` is where the reading picks up, not a row to hand back again.
+    """A time somebody writes down is where the reading picks up, and that row is on it.
 
-    The marker names the last row of the page before, so the row itself is already read:
-    a page that included it would show every boundary event twice.
+    A date typed by a person means the day, and the supper that starts at midnight on it
+    belongs to that day. A marker is the other thing: it names a row already read, and cuts
+    strictly past itself — see the pages that walk past twenty events at one start time.
     """
-    marker = (await plan(api, "tonight", starts_at=at(6), location_cell=VIGO))["starts_at"]
+    tonight = (await plan(api, "tonight", starts_at=at(6), location_cell=VIGO))["starts_at"]
     await plan(api, "later", starts_at=at(7), location_cell=VIGO)
 
-    page = await api.get("/api/events", params={"cell": VIGO, "from": marker})
+    page = await api.get("/api/events", params={"cell": VIGO, "from": tonight})
 
-    assert [event["title"] for event in page.json()["events"]] == ["later"]
+    assert [event["title"] for event in page.json()["events"]] == ["tonight", "later"]
 
 
 async def test_the_events_that_already_happened_are_behind_a_word_for_them(

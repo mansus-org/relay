@@ -14,7 +14,7 @@ class EventRepository(Repository[Event, UUID]):
     """Events by id, and the next ones on in a neighbourhood."""
 
     @abstractmethod
-    async def page_upcoming(
+    async def page_listing(
         self, *, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
         """The page that starts at `start`, in the order `start` reads in.

@@ -55,7 +55,7 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
         for event in events:
             self._items[event.id] = event
 
-    async def page_upcoming(
+    async def page_listing(
         self, *, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
         """The same cut the table makes: at a row, not at an instant.
@@ -66,15 +66,19 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
         """
         wanted = set(cells)
 
-        def past(event: Event) -> bool:
-            wall = (start.at, start.after_id)
+        def beyond_marker(event: Event) -> bool:
+            wall = (start.at, start.last_id)
             seen = (event.starts_at, event.id)
-            if start.after_id is None:
+            if start.last_id is None:
                 wall, seen = start.at, event.starts_at
-            return bool(seen < wall) if start.backwards else bool(seen > wall)
+            if start.backwards:
+                return bool(seen < wall)
+            return bool(seen > wall) if start.last_id else bool(seen >= wall)
 
         found = [
-            event for event in self._items.values() if event.location_cell in wanted and past(event)
+            event
+            for event in self._items.values()
+            if event.location_cell in wanted and beyond_marker(event)
         ]
         found.sort(key=lambda event: (event.starts_at, event.id), reverse=start.backwards)
         return found[:limit]

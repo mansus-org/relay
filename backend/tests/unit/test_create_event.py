@@ -59,7 +59,7 @@ async def test_an_event_is_filed_under_the_cell_it_was_given() -> None:
     )
 
     assert event.location_cell == "here"
-    assert await uow.events.page_upcoming(
+    assert await uow.events.page_listing(
         cells=["here"], start=ListingStart(at=PLANNED_AT), limit=20
     ) == [event]
 
@@ -85,7 +85,7 @@ async def test_an_event_filed_where_no_locality_ever_looks_is_not_written_down()
 
     assert uow.committed is False
     assert (
-        await uow.events.page_upcoming(cells=["here"], start=ListingStart(at=PLANNED_AT), limit=20)
+        await uow.events.page_listing(cells=["here"], start=ListingStart(at=PLANNED_AT), limit=20)
         == []
     )
 
@@ -98,7 +98,7 @@ async def test_nothing_is_written_down_when_an_event_was_never_planned() -> None
 
     assert uow.committed is False
     assert (
-        await uow.events.page_upcoming(cells=["here"], start=ListingStart(at=PLANNED_AT), limit=20)
+        await uow.events.page_listing(cells=["here"], start=ListingStart(at=PLANNED_AT), limit=20)
         == []
     )
 

@@ -15,12 +15,13 @@ from relay.contexts.events.domain.event import (
     EventNotFoundError,
     InvalidTimeError,
     instant,
-    placed_instant,
+    zoned_instant,
 )
 from relay.contexts.events.domain.listing import (
     EventDetails,
     EventListingPage,
     ListingStart,
+    UnknownPageError,
 )
 from relay.contexts.events.domain.ports import (
     CellNeighbourhood,
@@ -58,6 +59,7 @@ __all__ = [
     "RsvpOutcome",
     "RsvpRepository",
     "UnknownCellError",
+    "UnknownPageError",
     "instant",
-    "placed_instant",
+    "zoned_instant",
 ]
