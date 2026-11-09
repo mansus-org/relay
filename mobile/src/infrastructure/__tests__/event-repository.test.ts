@@ -60,21 +60,21 @@ describe('event repository', () => {
     expect(result.ok && result.value.events[0]).toMatchObject({ communityId: 'c-1', communityName: 'Vila Madalena' })
   })
 
-  it('reads the events filed under one community, wherever they are held', async () => {
+  it('reads the events filed under one community, from where the reader is standing', async () => {
     const { repository, seen } = setup(() => ({ status: 200, data: { events: [dto('e-1')], next_from: '2026-11-26T19:30:00+00:00|e-1' } }))
-    const result = await repository.listForCommunity({ communityId: 'c-1', from: '2026-11-25' })
+    const result = await repository.listForCommunity({ communityId: 'c-1', cell: 'abc', from: '2026-11-25' })
 
     expect(seen[0]!.url).toBe('/communities/c-1/events')
-    expect(seen[0]!.params).toEqual({ from: '2026-11-25' })
+    expect(seen[0]!.params).toEqual({ cell: 'abc', from: '2026-11-25' })
     expect(result.ok && result.value).toEqual({ events: [expect.objectContaining({ id: 'e-1' })], nextFrom: '2026-11-26T19:30:00+00:00|e-1' })
   })
 
   it('says the community is gone rather than showing an empty list of its events', async () => {
-    expect(await setup(() => ({ status: 404 })).repository.listForCommunity({ communityId: 'c-1' })).toEqual({ ok: false, error: 'not-found' })
+    expect(await setup(() => ({ status: 404 })).repository.listForCommunity({ communityId: 'c-1', cell: 'abc' })).toEqual({ ok: false, error: 'not-found' })
   })
 
   it('does not call a dead network an empty list', async () => {
-    expect(await setup(() => ({ status: 500 })).repository.listForCommunity({ communityId: 'c-1' })).toEqual({ ok: false, error: 'unexpected' })
+    expect(await setup(() => ({ status: 500 })).repository.listForCommunity({ communityId: 'c-1', cell: 'abc' })).toEqual({ ok: false, error: 'unexpected' })
   })
 
   it('takes an empty list as an empty page, not a broken one', async () => {

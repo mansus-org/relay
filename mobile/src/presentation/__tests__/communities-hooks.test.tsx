@@ -232,6 +232,15 @@ describe('useCommunity', () => {
     expect(t.result.current.state.events.map((e) => e.id)).toEqual(['9'])
     expect(t.result.current.state.eventsFailed).toBe(false)
   })
+
+  it('leaves the events alone when there is no position to read them from', async () => {
+    const t = setup({ location: false })
+    await flush()
+    expect(t.loadCommunityEvents).not.toHaveBeenCalled()
+    expect(t.result.current.state).toMatchObject({ eventsLoaded: true, eventsFailed: false, events: [] })
+    await act(async () => t.result.current.loadMoreEvents())
+    expect(t.loadCommunityEvents).not.toHaveBeenCalled()
+  })
 })
 
 describe('useCreateCommunity', () => {

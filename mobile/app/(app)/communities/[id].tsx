@@ -196,6 +196,8 @@ export default function CommunityScreen() {
               <ActivityIndicator color={colors.red} style={styles.status} accessibilityLabel="Loading events" />
             ) : state.eventsFailed ? (
               <Alert message="Could not load these events. Pull down to try again." />
+            ) : state.noLocation ? (
+              <Text style={styles.empty}>Turn on location to see what {community.name} has on near you.</Text>
             ) : (
               <Text style={styles.empty}>Nothing filed under {community.name} yet.</Text>
             )

@@ -82,9 +82,13 @@ export function useCommunity(id: string) {
     }
   }, [id, loadCommunityFeed, patch])
 
-  /** The community's own list, from today forwards. Distances are a courtesy, so the cell is optional. */
+  /**
+   * The community's own list, from today forwards. It is cut by the same ring as every other list,
+   * so with no position there is nothing to read it from and the screen says so instead.
+   */
   const loadEvents = useCallback(
     async (here: string | null) => {
+      if (here === null) return patch({ eventsLoaded: true, eventsFailed: false, eventsHasMore: false })
       const ticket = ++eventsGeneration.current
       const result = await loadCommunityEvents({ communityId: id, cell: here })
       if (ticket !== eventsGeneration.current) return
@@ -181,11 +185,12 @@ export function useCommunity(id: string) {
   }, [])
 
   const loadMoreEvents = useCallback(async () => {
-    if (!eventsCursor.current || eventsLoadingMore.current) return
+    const here = cellRef.current
+    if (!here || !eventsCursor.current || eventsLoadingMore.current) return
     eventsLoadingMore.current = true
     patch({ eventsLoadingMore: true })
     const ticket = eventsGeneration.current
-    const result = await loadCommunityEvents({ communityId: id, cell: cellRef.current, from: eventsCursor.current })
+    const result = await loadCommunityEvents({ communityId: id, cell: here, from: eventsCursor.current })
     eventsLoadingMore.current = false
     if (ticket !== eventsGeneration.current) return patch({ eventsLoadingMore: false })
     if (result.ok) {

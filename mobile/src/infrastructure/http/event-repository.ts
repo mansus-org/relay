@@ -62,11 +62,11 @@ export const makeHttpEventRepository = ({ http }: { http: AxiosInstance }): Even
     }
   },
 
-  async listForCommunity({ communityId, from }) {
+  async listForCommunity({ communityId, cell, from }) {
     try {
       // Same page shape as the nearby list, so one `next_from` reads the next page of either.
       const { data } = await http.get<{ events: EventDto[]; next_from?: string | null }>(communityEventsPath(communityId), {
-        params: { ...(from ? { from } : {}) },
+        params: { cell, ...(from ? { from } : {}) },
       })
       return ok<EventPage<Event>>({ events: (data.events ?? []).map(toEvent), nextFrom: data.next_from ?? null })
     } catch (error) {

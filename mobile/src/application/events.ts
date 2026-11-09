@@ -39,9 +39,10 @@ export const makeLoadNearbyEvents =
   }
 
 /**
- * One page of what a community has on, oldest end first. Nothing is measured against the reader: a
- * community is people rather than a place, so a plan with no venue on it is on this list and on
- * nobody else's. `from` is the previous page's `next_from`, or 'past' to read what it has been to.
+ * One page of what a community has on, soonest first. The ring is the same one every other read uses:
+ * being in the community is what lets you file a plan, not what lets you see one, so what your
+ * community put an hour away is not on your page. `from` is the previous page's `next_from`, or
+ * 'past' to read what it has been to.
  */
 export const makeLoadCommunityEvents =
   ({ eventRepository, cellEncoder }: Deps) =>
@@ -51,13 +52,12 @@ export const makeLoadCommunityEvents =
     from,
   }: {
     communityId: string
-    cell?: string | null
+    cell: string
     from?: string
   }): Promise<Result<EventPage<NearbyEvent>, EventError>> => {
-    const page = await eventRepository.listForCommunity({ communityId, from })
+    const page = await eventRepository.listForCommunity({ communityId, cell, from })
     if (!page.ok) return err(page.error)
-    // Distances are a courtesy here, and only when the reader's cell is known.
-    const center = cell ? cellEncoder.centerOf(cell) : null
+    const center = cellEncoder.centerOf(cell)
     return ok({
       nextFrom: page.value.nextFrom,
       events: page.value.events.map((event) => placeEvent(event, cellEncoder, center)),
