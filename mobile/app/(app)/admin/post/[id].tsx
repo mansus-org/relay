@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useState } from 'react'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import { useCallback, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { aiReason, aiRest, authorLabel, dateTime } from '../../../../src/domain'
@@ -27,24 +27,41 @@ import { useAdminPost } from '../../../../src/presentation/use-admin-post'
 export default function AdminPost() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
-  const { state, decide } = useAdminPost(id)
+  const { state, load, decide } = useAdminPost(id)
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')
+
+  // Every time this page is looked at, it asks the node again. A post can be decided in the second
+  // you look away, and an admin should never be shown a stamp that is already out of date.
+  useFocusEffect(
+    useCallback(() => {
+      void load()
+    }, [load]),
+  )
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/admin/queue'))
   const post = state.post
 
   const approve = async () => {
-    if (await decide('approve')) {
+    const outcome = await decide('approve')
+    if (outcome === 'decided') {
       markDecided(id)
       back()
+    } else if (outcome === 'already') {
+      // Somebody else decided it. The page has read the post again and now shows their answer;
+      // the queue is told too, so it does not offer the same post on the way back.
+      markDecided(id)
     }
   }
   const remove = async () => {
-    if (await decide('remove', reason.trim())) {
+    const outcome = await decide('remove', reason.trim())
+    if (outcome === 'decided') {
       markDecided(id)
       setAsking(false)
       back()
+    } else if (outcome === 'already') {
+      markDecided(id)
+      setAsking(false)
     }
   }
 
@@ -156,6 +173,7 @@ export default function AdminPost() {
         message="It stops showing on this node and the author is told why. Nothing is erased: another admin can put it back."
         confirm="Remove post"
         reason={{ label: 'Why (the author sees this)', value: reason, onChange: setReason, required: true }}
+        error={state.problem}
         busy={state.busy}
         onConfirm={() => void remove()}
         onCancel={() => setAsking(false)}

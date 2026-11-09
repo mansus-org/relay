@@ -1,10 +1,11 @@
 import { act, create } from 'react-test-renderer'
 
 import type { UseCases } from '../../application'
-import { err, ok, type AdminError, type AdminMember, type Invite, type ModeratedPost } from '../../domain'
+import { err, ok, type AdminError, type AdminMember, type Invite, type ModerationDecision, type ModeratedPost, type Result } from '../../domain'
 import { useAdminInvites } from '../use-admin-invites'
 import { useAdminMembers } from '../use-admin-members'
 import { useAdminPost } from '../use-admin-post'
+import type { Decision } from '../use-admin-post'
 import { markDecided, useAdminQueue } from '../use-admin-queue'
 import { UseCasesProvider } from '../use-cases'
 
@@ -110,36 +111,104 @@ describe('useAdminQueue', () => {
     expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['q2'])
     t.unmount()
   })
+
+  it('forgets what you settled as soon as the node answers', async () => {
+    const loadQueue = jest.fn(async () => ok([post('q1'), post('q2')]))
+    const t = mount(useAdminQueue, { loadQueue })
+    await load(t.result.current.refresh)
+    markDecided('q1')
+    await load(t.result.current.refresh)
+    // The node still lists it, so it is listed. What was remembered is only good until the next
+    // answer, and only for the node that gave that answer.
+    expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['q1', 'q2'])
+    t.unmount()
+  })
 })
 
 describe('useAdminPost', () => {
+  /** The page reads the post when it comes into view, so a test has to bring it into view. */
+  const open = async (overrides: Partial<UseCases>) => {
+    const t = mount(() => useAdminPost('p1'), overrides)
+    await load(t.result.current.load)
+    return t
+  }
+
   it('reads the post again rather than trusting what the queue carried', async () => {
     const loadModeratedPost = jest.fn(async () => ok(post('p1', { status: 'approved' })))
-    const t = mount(() => useAdminPost('p1'), { loadModeratedPost })
-    await flush()
+    const t = await open({ loadModeratedPost })
     expect(loadModeratedPost).toHaveBeenCalledWith({ id: 'p1' })
     expect(t.result.current.state.post?.status).toBe('approved')
   })
 
   it('says the post is gone when the node does not have it', async () => {
-    const t = mount(() => useAdminPost('p1'), { loadModeratedPost: jest.fn(async () => failed('not-found')) })
-    await flush()
+    const t = await open({ loadModeratedPost: jest.fn(async () => failed('not-found')) })
     expect(t.result.current.state.post).toBeNull()
     expect(t.result.current.state.problem).toBe('That is not on this node any more.')
   })
 
-  it('reports whether the node took the decision, and tells the screen when another admin got there first', async () => {
+  it('tells the screen when another admin got there first, and reads the post again', async () => {
     const reviewPost = jest.fn(async () => failed('already-decided'))
-    const t = mount(() => useAdminPost('p1'), { reviewPost, loadModeratedPost: jest.fn(async () => ok(post('p1'))) })
-    await flush()
-    let taken: boolean | undefined
+    const loadModeratedPost = jest.fn(async () => ok(post('p1')))
+    const t = await open({ reviewPost, loadModeratedPost })
+    let taken: Decision | undefined
     await act(async () => {
       taken = await t.result.current.decide('remove', 'contact details')
     })
-    expect(taken).toBe(false)
+    expect(taken).toBe('already')
     expect(reviewPost).toHaveBeenCalledWith({ id: 'p1', action: 'remove', reason: 'contact details' })
-    expect(t.result.current.state.problem).toBe('Somebody got there first. Pull to see the queue again.')
+    // The page said "waiting" and the node has said otherwise. It is read again so what is left on
+    // screen is their answer, not the stamp that was here before.
+    expect(loadModeratedPost).toHaveBeenCalledTimes(2)
+    expect(t.result.current.state.problem).toBeNull()
     expect(t.result.current.state.busy).toBe(false)
+  })
+
+  it('says what the node said when it refused for another reason', async () => {
+    const t = await open({
+      reviewPost: jest.fn(async () => failed('not-an-admin')),
+      loadModeratedPost: jest.fn(async () => ok(post('p1'))),
+    })
+    let taken: Decision | undefined
+    await act(async () => {
+      taken = await t.result.current.decide('approve')
+    })
+    expect(taken).toBe('refused')
+    expect(t.result.current.state.problem).toBe('This node only shows that to its admins.')
+  })
+
+  it('will not ask twice while the node is still deciding', async () => {
+    let answer: (result: Result<ModerationDecision, AdminError>) => void = () => undefined
+    const reviewPost = jest.fn(() => new Promise<Result<ModerationDecision, AdminError>>((resolve) => (answer = resolve)))
+    const t = await open({ reviewPost, loadModeratedPost: jest.fn(async () => ok(post('p1'))) })
+    let first!: Promise<Decision>
+    let second: Decision | undefined
+    await act(async () => {
+      first = t.result.current.decide('approve')
+      second = await t.result.current.decide('approve')
+    })
+    expect(second).toBe('refused')
+    expect(reviewPost).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      answer(ok('approved'))
+      await first
+    })
+  })
+
+  it('keeps quiet once the page has gone away', async () => {
+    let answer: (result: Result<ModerationDecision, AdminError>) => void = () => undefined
+    const reviewPost = jest.fn(() => new Promise<Result<ModerationDecision, AdminError>>((resolve) => (answer = resolve)))
+    const t = await open({ reviewPost, loadModeratedPost: jest.fn(async () => ok(post('p1'))) })
+    let outcome: Decision | undefined
+    act(() => {
+      void t.result.current.decide('approve').then((result) => (outcome = result))
+    })
+    // The screen goes back the moment the decision lands, and it can go back before the node does.
+    t.unmount()
+    await act(async () => {
+      answer(ok('approved'))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(outcome).toBe('refused')
   })
 })
 
