@@ -27,6 +27,7 @@ import {
   makeRestoreSession,
   makeSubscribeToPosts,
   makeSwitchNode,
+  makeReadServerUrl,
   makeTestNode,
   makeUpdateProfile,
   type UseCases,
@@ -143,6 +144,7 @@ export function wireUseCases({
     updateProfile: makeUpdateProfile({ profileRepository, tokenReader: tokenStore }),
     testNode: makeTestNode({ nodeProbe }),
     switchNode: makeSwitchNode({ nodeProbe, serverUrlWriter: serverUrlStore, tokenWriter: tokenStore }),
+    readServerUrl: makeReadServerUrl({ serverUrlReader: serverUrlStore }),
     sessionEvents,
   }
 }

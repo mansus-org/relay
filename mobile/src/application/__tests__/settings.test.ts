@@ -1,8 +1,20 @@
-import { displayNameError, err, ok, type Profile } from '../../domain'
+import { DEFAULT_SERVER_URL, displayNameError, err, ok, type Profile } from '../../domain'
 import { makeFakeNodeProbe, makeFakeProfileRepository, makeMemoryServerUrlStore, makeMemoryTokenStore, makeNodeTest } from '../../testing/fakes'
-import { makeGetProfile, makeSwitchNode, makeTestNode, makeUpdateProfile } from '..'
+import { makeGetProfile, makeReadServerUrl, makeSwitchNode, makeTestNode, makeUpdateProfile } from '..'
 
 const profile: Profile = { handle: 'ada', displayName: 'Ada L' }
+
+describe('readServerUrl', () => {
+  it('answers with the node stored, which is the built-in one until someone moves', async () => {
+    expect(await makeReadServerUrl({ serverUrlReader: makeMemoryServerUrlStore() })()).toBe(DEFAULT_SERVER_URL)
+  })
+
+  it('answers with wherever the person moved to', async () => {
+    const store = makeMemoryServerUrlStore()
+    await store.set('https://relay.example.org')
+    expect(await makeReadServerUrl({ serverUrlReader: store })()).toBe('https://relay.example.org')
+  })
+})
 
 describe('getProfile', () => {
   it('reads the account of whoever is signed in', async () => {

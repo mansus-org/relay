@@ -19,6 +19,7 @@ import type { makeRestoreSession } from './restore-session'
 import type { makeGetProfile } from './get-profile'
 import type { makeUpdateProfile } from './update-profile'
 import type { makeSwitchNode } from './switch-node'
+import type { makeReadServerUrl } from './read-server-url'
 import type { makeTestNode } from './test-node'
 
 export {
@@ -51,6 +52,7 @@ export { makeRestoreSession } from './restore-session'
 export { makeGetProfile } from './get-profile'
 export { makeUpdateProfile } from './update-profile'
 export { makeSwitchNode } from './switch-node'
+export { makeReadServerUrl } from './read-server-url'
 export { makeTestNode } from './test-node'
 
 /** Everything the presentation layer may call; built once by the composition root. */
@@ -85,5 +87,7 @@ export type UseCases = {
   /** One health call to a node, before anything is written. */
   readonly testNode: ReturnType<typeof makeTestNode>
   readonly switchNode: ReturnType<typeof makeSwitchNode>
+  /** The node this app points at; the built-in one until someone moves it. */
+  readonly readServerUrl: ReturnType<typeof makeReadServerUrl>
   readonly sessionEvents: SessionEvents
 }

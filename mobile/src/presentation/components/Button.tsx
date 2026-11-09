@@ -12,8 +12,8 @@ type Props = {
   busy?: boolean
   /** 'sm' is the 44px header variant. */
   size?: 'md' | 'sm'
-  /** 'ghost' is an underlined red text button with no box. */
-  variant?: 'primary' | 'ghost'
+  /** 'ghost' is an underlined red text button with no box; 'outline' is an ink rule and no fill. */
+  variant?: 'primary' | 'ghost' | 'outline'
 }
 
 /** Red block button with a hard ink shadow. Disabled turns paper2 with muted text and no shadow. */
@@ -45,9 +45,13 @@ export function Button({ label, onPress, disabled = false, busy = false, size = 
       onPress={onPress}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
-      style={[styles.button, size === 'sm' && styles.small, inactive ? styles.inactive : styles.active]}
+      style={[styles.button, size === 'sm' && styles.small, inactive ? styles.inactive : variant === 'outline' ? styles.outline : styles.active]}
     >
-      <MonoLabel size={size === 'sm' ? 12.5 : 14} tracking={size === 'sm' ? 0.12 : 0.16} color={inactive ? colors.ink2 : colors.onRed}>
+      <MonoLabel
+        size={size === 'sm' ? 12.5 : 14}
+        tracking={size === 'sm' ? 0.12 : 0.16}
+        color={inactive ? colors.ink2 : variant === 'outline' ? colors.ink : colors.onRed}
+      >
         {label}
       </MonoLabel>
     </Pressable>
@@ -66,5 +70,6 @@ const styles = StyleSheet.create({
   ghost: { height: 50, minHeight: minTap, alignItems: 'center', justifyContent: 'center' },
   ghostText: { textDecorationLine: 'underline' },
   active: { backgroundColor: colors.red, borderColor: colors.ink },
+  outline: { backgroundColor: colors.surface, borderColor: colors.ink },
   inactive: { backgroundColor: colors.paper2, borderColor: colors.ink2 },
 })
