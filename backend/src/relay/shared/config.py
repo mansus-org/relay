@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     version: str = Field(default="dev")
     log_level: str = Field(default="INFO")
     web_dist_dir: Path | None = Field(default=None, description="Exported web build to serve at /")
+    stream_keepalive_seconds: float = Field(
+        default=30.0,
+        description=(
+            "How long a live stream goes quiet before it sends a keepalive comment "
+            "(STREAM_KEEPALIVE_SECONDS). Shorter than whatever sits in front of Relay "
+            "closes an idle connection for, or the stream drops for nobody at all."
+        ),
+    )
 
     @field_validator("web_dist_dir", mode="before")
     @classmethod

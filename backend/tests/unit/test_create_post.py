@@ -1,5 +1,8 @@
-"""Writing a post: it is saved with the time it was said at, and nothing half-said."""
+"""Writing a post: it is saved with the time it was said at, nothing half-said, and the
+locality told once it is there.
+"""
 
+import asyncio
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -8,9 +11,16 @@ import pytest
 from relay.contexts.posts.application import CreatePost
 from relay.contexts.posts.domain.cells import UnknownCellError
 from relay.contexts.posts.domain.post import PostNotFoundError
+from relay.contexts.posts.infrastructure.broadcaster import LocalBroadcaster
 from relay.shared.domain import ValidationError
 from tests.fakes.clock import FixedClock
-from tests.fakes.posts import FakePostsUnitOfWork, FixedCells, a_post
+from tests.fakes.posts import (
+    FakePostsUnitOfWork,
+    FixedCells,
+    FixedNeighbourhood,
+    RecordingLiveFeed,
+    a_post,
+)
 
 
 async def test_a_post_is_saved_and_handed_back_with_the_time_it_was_said() -> None:
@@ -143,3 +153,70 @@ async def test_a_reply_to_a_post_taken_down_is_refused() -> None:
         await use_case.execute(author_id=uuid4(), body="+1", parent_id=taken_down.id)
 
     assert uow.committed is False
+
+
+# Telling the locality. A post is only news once it is there to be read.
+
+
+async def test_a_post_said_in_a_watched_locality_arrives_on_it() -> None:
+    uow = FakePostsUnitOfWork()
+    watching = LocalBroadcaster(FixedNeighbourhood())
+    reader = watching.subscribe("here", radius_km=1)
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells(), live_feed=watching)
+
+    post = await use_case.execute(
+        author_id=uuid4(), body="Free piano, ground floor.", location_cell="here"
+    )
+
+    assert await asyncio.wait_for(reader.next_post(), timeout=1) is post
+
+
+async def test_a_reply_arrives_where_the_post_it_answers_was_said() -> None:
+    """A reply belongs to its thread's locality, so the thread arriving live arrives whole."""
+    root = a_post("Is the bakery closing for good?")
+    uow = FakePostsUnitOfWork([root])
+    watching = LocalBroadcaster(FixedNeighbourhood())
+    reader = watching.subscribe("here", radius_km=1)
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells(), live_feed=watching)
+
+    reply = await use_case.execute(author_id=uuid4(), body="Back Monday.", parent_id=root.id)
+
+    assert await asyncio.wait_for(reader.next_post(), timeout=1) is reply
+
+
+async def test_the_locality_is_told_only_once_the_post_is_saved() -> None:
+    """A stream that spoke first would hand out a post a read straight after cannot find."""
+    uow = FakePostsUnitOfWork()
+    watching = RecordingLiveFeed(uow)
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells(), live_feed=watching)
+
+    post = await use_case.execute(
+        author_id=uuid4(), body="The bakery is back.", location_cell="here"
+    )
+
+    assert watching.announced == [post]
+    assert watching.saved == [True]
+
+
+async def test_a_post_that_was_never_said_is_never_announced() -> None:
+    uow = FakePostsUnitOfWork()
+    watching = RecordingLiveFeed(uow)
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells(), live_feed=watching)
+
+    with pytest.raises(ValidationError, match="needs some text"):
+        await use_case.execute(author_id=uuid4(), body="   ", location_cell="here")
+
+    assert watching.announced == []
+
+
+async def test_a_post_said_without_a_locality_is_announced_to_nobody() -> None:
+    """No locality said, no locality to tell - the same silence as the feed."""
+    uow = FakePostsUnitOfWork()
+    watching = LocalBroadcaster(FixedNeighbourhood())
+    reader = watching.subscribe("here", radius_km=1)
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells(), live_feed=watching)
+
+    await use_case.execute(author_id=uuid4(), body="Anyone seen a grey cat?")
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(reader.next_post(), timeout=0.05)

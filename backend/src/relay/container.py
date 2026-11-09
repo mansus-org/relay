@@ -51,6 +51,7 @@ from relay.contexts.posts.application import (
 from relay.contexts.posts.infrastructure import (
     H3CellNeighbourhood,
     H3CellStandard,
+    LocalBroadcaster,
     SqlAlchemyPostsUnitOfWork,
 )
 from relay.shared.application import Clock, UnitOfWork
@@ -79,6 +80,7 @@ class Container:
         reach: H3CommunityReach | None = None,
         events_neighbourhood: EventsCellNeighbourhood | None = None,
         events_cells: EventsCellStandard | None = None,
+        live_feed: LocalBroadcaster | None = None,
     ) -> None:
         self.settings = settings
         self.session_factory = session_factory
@@ -98,6 +100,9 @@ class Container:
         # so that changing how far a feed reaches is never also a change to what is on.
         self.events_neighbourhood = events_neighbourhood or EventsCellNeighbourhood()
         self.events_cells = events_cells or EventsCellStandard()
+        # Who is reading a locality right now, in this process. One for the process, so
+        # the write that makes a post and the stream that carries it agree on the cells.
+        self.live_feed = live_feed or LocalBroadcaster(self.neighbourhood)
 
     def unit_of_work(self) -> UnitOfWork:
         return SqlAlchemyUnitOfWork(self.session_factory)
@@ -147,7 +152,12 @@ class Container:
         return IssueTokens(tokens=self.tokens, clock=self.clock, uow=uow)
 
     def get_create_post(self) -> CreatePost:
-        return CreatePost(uow=self.posts_unit_of_work(), clock=self.clock, cells=self.cells)
+        return CreatePost(
+            uow=self.posts_unit_of_work(),
+            clock=self.clock,
+            cells=self.cells,
+            live_feed=self.live_feed,
+        )
 
     def get_feed(self) -> GetFeed:
         return GetFeed(uow=self.posts_unit_of_work(), neighbourhood=self.neighbourhood)
