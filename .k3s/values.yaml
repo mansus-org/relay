@@ -21,12 +21,7 @@ healthCheck:
 # default published in this repo (backend/src/relay/shared/config.py), so it has to come from the
 # cluster. Every key in the secret below becomes an env var.
 #
-# PENDING: these are placeholders, not ciphertext. Sealing needs the cluster's sealed-secrets
-# controller certificate, which needs kubectl. Until a person replaces both blocks with real
-# sealed values, the preview cannot start and merging this takes relay.mansus.org down: no
-# SECRET_KEY, so the guard fires. How-to: k3s-hetzner-gitops docs/app-platform/new-app.md #6.
-#
-# To fill both at once, with kubectl on the k3s cluster: .k3s/seal-secret-key.sh
+# To rotate both (logs everyone out), with kubectl on the k3s cluster: .k3s/seal-secret-key.sh
 #
 # Production, sealed for the "relay" namespace:
 #   kubectl create secret generic relay-secrets -n relay \
@@ -37,7 +32,7 @@ healthCheck:
 sealedSecrets:
   - name: relay-secrets
     encryptedData:
-      SECRET_KEY: REPLACE-ME-SEALED-FOR-THE-RELAY-NAMESPACE
+      SECRET_KEY: AgA5VZCSTesqS3q3bFic49MziKaMbt4a+h/PHJpmiop1F/3VItEJOC5+IeLS4wZ7qOt+HnxiEJPHO/0anOqoJd+cJlvYZMAvXZH5mDsR6DNgkD//dpctoYNZjtt4ZsBgkOngskqTQhAjZR1ddEMufDk/Km6/9AP+ezkTxV7G4e+mwDNcUIVZEorZKR/UbeG9Dh6Wv6m5s96OWpJqdYwFR3vYs1Eq2ZOSgtMAofNef7SHVr1ik2EHKw6UWk/l+mIfudOEZ7Gz/OYNAPQBlvF/kUIaLppeB4N4VaXP0PzuHowAxCc5IXqZG4Zd8oFQ6ZtHhP/yriIHtcnf03RpZl7uZxIFQMjOXd5tsxaUlC1KOXiAejWCwe/FJjOwBkRkUPiI0QpEaIFkxVN6IoqcuNP/nw9s+CwFygWwLLiKmgfjZvO2qDnxrgLjlhYArZI7NBgoqftrPsHVYzFFFBihHLFOMWb7wj2tK84hqOF0X7y7MyM82O8qczlGBFL+/J3MDi6rdoe4teZjtXpkHlmIzuVfmlDpT/K1baFBXCY/BrNpJh270wX/+N0Q+e5M9qq/xDiUZE70Yh4ruWYLrsBivcGU68pZ4hMl99sMcL1BBxWPhjLGvx78zdJJe1peVvSI6tGyzZKL3CcVs5Pr2xEkKO1jH5z7mm2Q3sVKKLBogqNC75UrfJfyYjR8pJMZkXILtUqH5QEG8p1kakDznOc6r7pdYaoAsQmts7jF9onB0VuzbJIm1APBEiC79Etz83A0c75/LlGc/It9DR+ZId2Rvo5ZUGMH
 
 # Previews run in relay-pr-N and cannot decrypt the block above, so they get their own copy,
 # sealed --scope cluster-wide with a throwaway key (docs/app-platform/previews.md).
@@ -51,7 +46,7 @@ preview:
     - name: relay-secrets
       scope: cluster-wide
       encryptedData:
-        SECRET_KEY: REPLACE-ME-SEALED-FOR-ANY-NAMESPACE
+        SECRET_KEY: AgA6O8k6V7ehc9/ltdfIZzOCoznGIVy8faI62XUqIMjrbk1mQVmXgfG+qi891PNBlnxKpPX/acvvEi27TzFFbxcH6X6rQ1xzlREzVzgb/2RGWV6c2aXumcwZwQapRowNN3P57Ja7RUoVdUZTIpczt42gMD3CFk8prAMTOcgeIhz89HnDtkdTQOgJWv9ZEq0nORKhhymPaux+zmEM8Z0XStMP36unzDPs4AmpBrmjtJ4l1HT6AR5hm1wEpdNHEZ/h0IAz6MwhryXivYDmGqAj1O+O6cbHOmKd1sJPjIHyWI51GXNtqtTc0xhRPKZRo9kfeDhXnBqtF7AfsQgWXrr32ptZw2G0mDyKAzwJaHKMU78gCpOsgVkpUxiTlif3N1tpV2rajwUSkIyppH4Qcxpf+3HmdjTQV07AvceNlK5KfYZXAsNbh4EekNd8mG0hEYuUfmqo/FT5liw1Zzt0RS2RLKvgs90kJIu3h2BicM2Vr7C7z08YIDK0qDh+kgiwyOZ9a6FkhVnDyvnY691Ftwt2Wr6ptwIDwKt1esTi4drSqVzStELDoN2CjIkuT9Riy562VpTEMYZdgS5eEAKwoKgIaFAzZtoIawxVG104dVBiwhaZAOwhxVIhoaj5X7Vneothdkzx6lh+ty9gt2mkGQWnE+UQaN7GUgKKrajKY3Ms73KtPPNhd/MAfvEdqNdHSxVY3avBm5dCh8jcJ2WMv9xJBggaMrii40uwmL85AHcV3HYYHT2z9cqzZQLJ9gBvFnmziMwHXN3+56CZjY5xP/7BUe2I
 
 envFromSecrets: [relay-secrets]
 
