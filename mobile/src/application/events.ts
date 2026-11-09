@@ -62,7 +62,7 @@ export const makeCancelRsvp =
 
 /** Putting an event on the map. The cell is the host's own; the server refuses one that is not real. */
 export const makeCreateEvent =
-  ({ eventRepository }: Deps) =>
+  ({ eventRepository, cellEncoder }: Deps) =>
   async (event: NewEvent): Promise<Result<NearbyEvent, EventError>> => {
     const created = await eventRepository.create(event)
     if (!created.ok) return err(created.error)

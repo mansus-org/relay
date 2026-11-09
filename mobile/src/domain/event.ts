@@ -1,4 +1,4 @@
-import { distanceInKm } from './community'
+import { distanceKm } from './community'
 import type { ApiError, LatLng } from './post'
 import type { CellEncoder } from './ports'
 
@@ -76,7 +76,7 @@ export const placeEvent = <T extends Event>(
   from: LatLng | null,
 ): T & { readonly distanceKm: number | null; readonly at: LatLng | null } => {
   const at = event.locationCell ? cellEncoder.centerOf(event.locationCell) : null
-  return { ...event, at, distanceKm: at && from ? distanceInKm(from, at) : null }
+  return { ...event, at, distanceKm: at && from ? distanceKm(from, at) : null }
 }
 
 const DAY_MS = 86_400_000
@@ -108,7 +108,7 @@ export const eventDayLabel = (instant: string, now: Date): string => {
   const apart = daysApart(now, date)
   if (apart <= 0) return 'Today'
   if (apart === 1) return 'Tmrw'
-  return apart < 7 ? DAYS[date.getDay()] : `${MONTHS[date.getMonth()]} ${date.getDate()}`
+  return apart < 7 ? (DAYS[date.getDay()] ?? '') : `${MONTHS[date.getMonth()] ?? ''} ${date.getDate()}`
 }
 
 /**
@@ -147,8 +147,8 @@ export const groupEvents = (events: readonly NearbyEvent[], now: Date): readonly
   return (['today', 'tomorrow', 'week', 'later'] as const)
     .filter((key) => buckets.has(key))
     .map((key) => {
-      const group = buckets.get(key) as NearbyEvent[]
-      return { key, label: GROUP_LABELS[key], dateLabel: formatEventDate(group[0].startsAt), events: group }
+      const group = buckets.get(key) ?? []
+      return { key, label: GROUP_LABELS[key], dateLabel: formatEventDate(group[0]?.startsAt ?? ''), events: group }
     })
 }
 
@@ -164,7 +164,7 @@ export const clusterEvents = (events: readonly NearbyEvent[], sizeKm = 3): reado
   const pins: { id: string; at: LatLng; events: NearbyEvent[]; lat: number; lng: number }[] = []
   for (const event of events) {
     if (!event.at) continue
-    const near = pins.find((pin) => distanceInKm(pin.at, event.at as LatLng) <= sizeKm)
+    const near = pins.find((pin) => event.at !== null && distanceKm(pin.at, event.at) <= sizeKm)
     if (near) {
       near.events.push(event)
       near.lat += event.at.lat
