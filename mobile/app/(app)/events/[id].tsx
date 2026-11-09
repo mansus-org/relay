@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { formatDistance, formatEventDate, formatEventTime } from '../../../src/domain'
 import { Alert } from '../../../src/presentation/components/Alert'
@@ -56,6 +56,7 @@ export default function EventDetail() {
   const range = event.endsAt ? `${formatEventTime(event.startsAt)} – ${formatEventTime(event.endsAt)}` : formatEventTime(event.startsAt)
   const away = formatDistance(event.distanceKm)
   const going = `${state.count} ${state.count === 1 ? 'person' : 'people'} going`
+  const filed = event.communityName ?? 'A community'
 
   return (
     <View style={styles.screen}>
@@ -87,6 +88,27 @@ export default function EventDetail() {
               <Fact label="When" value={`${range}`} big />
               <Fact label="Where" value={event.venueName ?? (away ? 'No venue named' : 'No place given')} />
               {away ? <Fact label="Distance" value={away} /> : null}
+              {event.communityId ? (
+                <Pressable
+                  style={styles.fact}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Filed under ${filed}. Open the community.`}
+                  onPress={() => router.push(`/communities/${event.communityId}`)}
+                >
+                  <View style={styles.labelRow}>
+                    <View style={styles.rule} />
+                    <MonoLabel size={11} tracking={0.16}>
+                      Filed under
+                    </MonoLabel>
+                  </View>
+                  <View style={styles.factRow}>
+                    <Text style={styles.factValue}>{filed}</Text>
+                    <MonoLabel size={11} tracking={0.1} color={colors.redText}>
+                      Open ›
+                    </MonoLabel>
+                  </View>
+                </Pressable>
+              ) : null}
               <Fact label="Going" value={going} />
             </View>
           </HardShadow>
@@ -130,6 +152,7 @@ const styles = StyleSheet.create({
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   rule: { width: 14, height: 3, backgroundColor: colors.red },
   factValue: { marginTop: 3, fontFamily: fonts.bodyMedium, fontSize: 19, color: colors.ink },
+  factRow: { marginTop: 3, flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   factBig: { fontFamily: fonts.display, fontSize: 34, lineHeight: 36, color: colors.ink },
   details: { padding: 16, fontFamily: fonts.body, fontSize: 18, lineHeight: 26, color: colors.ink, backgroundColor: colors.surface, borderWidth: line.regular, borderColor: colors.ink },
   rsvp: { marginTop: 4 },

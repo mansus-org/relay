@@ -6,6 +6,7 @@ import { formatDistance, type CommunityError, type NearbyCommunity } from '../..
 import { Alert } from '../../../src/presentation/components/Alert'
 import { Avatar } from '../../../src/presentation/components/Avatar'
 import { Button } from '../../../src/presentation/components/Button'
+import { EventRow } from '../../../src/presentation/components/EventRow'
 import { FeedPostCard } from '../../../src/presentation/components/FeedPostCard'
 import { GeoRing, GeoSun, GeoWedge } from '../../../src/presentation/components/Geo'
 import { HardShadow } from '../../../src/presentation/components/HardShadow'
@@ -15,7 +16,9 @@ import { PseudonymSheet } from '../../../src/presentation/components/PseudonymSh
 import { colors, fonts, line, minTap } from '../../../src/presentation/theme'
 import { useCommunity } from '../../../src/presentation/use-community'
 
-type Tab = 'feed' | 'about'
+type Tab = 'feed' | 'events' | 'about'
+
+const TAB_LABELS: Record<Tab, string> = { feed: 'Feed', events: 'Events', about: 'About' }
 
 const joinMessages: Partial<Record<CommunityError, string>> = {
   'out-of-range': 'You are outside this community’s area, so you cannot join it.',
@@ -35,17 +38,17 @@ function Stamp({ children, ochre = false }: { children: string; ochre?: boolean 
 function Tabs({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) {
   return (
     <View style={styles.tabs} accessibilityRole="tablist">
-      {(['feed', 'about'] as const).map((t) => (
+      {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
         <Pressable
           key={t}
           accessibilityRole="tab"
-          accessibilityLabel={t === 'feed' ? 'Feed' : 'About'}
+          accessibilityLabel={TAB_LABELS[t]}
           accessibilityState={{ selected: tab === t }}
           onPress={() => onChange(t)}
           style={[styles.tab, tab === t && styles.tabOn]}
         >
           <MonoLabel size={14} tracking={0.18} color={tab === t ? colors.paper : colors.ink2}>
-            {t === 'feed' ? 'Feed' : 'About'}
+            {TAB_LABELS[t]}
           </MonoLabel>
         </Pressable>
       ))}
@@ -92,7 +95,7 @@ export default function CommunityScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('feed')
-  const { state, canJoin, promptOpen, joining, joinError, requestJoin, join, cancelPrompt, refresh, loadMore, react } = useCommunity(id)
+  const { state, canJoin, promptOpen, joining, joinError, requestJoin, join, cancelPrompt, refresh, loadMore, loadMoreEvents, react } = useCommunity(id)
   const { community } = state
   const now = new Date()
 
@@ -168,9 +171,38 @@ export default function CommunityScreen() {
     </View>
   )
 
+  const pullToRefresh = (
+    <RefreshControl refreshing={state.refreshing} onRefresh={() => void refresh()} tintColor={colors.red} colors={[colors.red]} />
+  )
+
   return (
     <View style={styles.screen}>
       {nav}
+      {tab === 'events' ? (
+        <FlatList
+          data={state.events}
+          keyExtractor={(event) => event.id}
+          renderItem={({ item }) => (
+            <EventRow event={item} now={now} onPress={() => router.push(`/events/${item.id}`)} />
+          )}
+          ListHeaderComponent={hero}
+          ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
+          contentContainerStyle={styles.list}
+          refreshControl={pullToRefresh}
+          onEndReached={() => void loadMoreEvents()}
+          onEndReachedThreshold={0.5}
+          ListEmptyComponent={
+            !state.eventsLoaded ? (
+              <ActivityIndicator color={colors.red} style={styles.status} accessibilityLabel="Loading events" />
+            ) : state.eventsFailed ? (
+              <Alert message="Could not load these events. Pull down to try again." />
+            ) : (
+              <Text style={styles.empty}>Nothing filed under {community.name} yet.</Text>
+            )
+          }
+          ListFooterComponent={state.eventsLoadingMore ? <ActivityIndicator color={colors.red} style={styles.status} /> : undefined}
+        />
+      ) : (
       <FlatList
         key={tab}
         data={tab === 'feed' && community.isMember ? state.posts : []}
@@ -186,7 +218,7 @@ export default function CommunityScreen() {
         ListHeaderComponent={hero}
         ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
         contentContainerStyle={styles.list}
-        refreshControl={<RefreshControl refreshing={state.refreshing} onRefresh={() => void refresh()} tintColor={colors.red} colors={[colors.red]} />}
+        refreshControl={pullToRefresh}
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.5}
         ListEmptyComponent={
@@ -204,6 +236,7 @@ export default function CommunityScreen() {
         }
         ListFooterComponent={state.loadingMore ? <ActivityIndicator color={colors.red} style={styles.status} /> : undefined}
       />
+      )}
       <PseudonymSheet
         visible={promptOpen}
         communityName={community.name}

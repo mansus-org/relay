@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { DAY_MS, HOUR_MS, MINUTE_MS, formatEventDate, formatEventTime } from '../../../src/domain'
 import { Alert } from '../../../src/presentation/components/Alert'
 import { Button } from '../../../src/presentation/components/Button'
+import { Chip } from '../../../src/presentation/components/Chip'
 import { GeoSun } from '../../../src/presentation/components/Geo'
 import { MonoLabel } from '../../../src/presentation/components/MonoLabel'
 import { NavBar } from '../../../src/presentation/components/NavBar'
@@ -38,8 +39,8 @@ function FieldLabel({ text, note }: { text: string; note?: string }) {
 
 export default function NewEvent() {
   const router = useRouter()
-  const { state, set, shiftStart, submit } = useCreateEvent()
-  const { draft, errors } = state
+  const { state, set, shiftStart, toggleCommunity, submit } = useCreateEvent()
+  const { draft, errors, communities } = state
   const when = draft.startsAt ? `${formatEventDate(draft.startsAt)} · ${formatEventTime(draft.startsAt)}` : 'Tomorrow evening'
   const until = draft.endsAt ? formatEventTime(draft.endsAt) : null
   const endsAt = (ms: number) => set({ endsAt: new Date((draft.startsAt ?? new Date()).getTime() + ms) })
@@ -114,6 +115,29 @@ export default function NewEvent() {
             </MonoLabel>
           </View>
 
+          {communities.length > 0 ? (
+            <View style={styles.field}>
+              <FieldLabel text="Filed under" note="optional" />
+              <View style={styles.chips}>
+                {communities.map((community) => (
+                  <Chip
+                    key={community.id}
+                    label={community.name}
+                    tone={draft.communityId === community.id ? 'on' : 'plain'}
+                    accessibilityLabel={`File under ${community.name}`}
+                    accessibilityState={{ selected: draft.communityId === community.id }}
+                    onPress={() => toggleCommunity(community.id)}
+                  />
+                ))}
+              </View>
+              <MonoLabel size={11} tracking={0.08} color={colors.ink2}>
+                {draft.communityId
+                  ? 'Everyone in that community sees it, wherever they are.'
+                  : 'Pick one of yours and it is on that community’s list, wherever it is held.'}
+              </MonoLabel>
+            </View>
+          ) : null}
+
           <TextField
             label="Details"
             value={draft.details}
@@ -147,6 +171,7 @@ const styles = StyleSheet.create({
   until: { fontFamily: fonts.bodyMedium, fontSize: 18, color: colors.ink },
   place: { fontFamily: fonts.bodyMedium, fontSize: 18, color: colors.ink },
   steps: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   step: {
     minHeight: 44,
     minWidth: 56,
