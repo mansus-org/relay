@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import h3
 import pytest
-from sqlalchemy import insert
+from sqlalchemy import Select, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from relay.contexts.events.domain.event import Event
@@ -283,29 +283,57 @@ def rows(cell: str, count: int, first_index: int) -> list[dict[str, object]]:
     ]
 
 
+async def load(engine: AsyncEngine, payload: list[dict[str, object]]) -> None:
+    """Put the rows in, and give Postgres statistics to plan with.
+
+    Without an ANALYZE the planner reads the whole table instead of the index, so a
+    plan read straight after a load would say nothing.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(lambda sync_conn: sync_conn.execute(insert(EventModel), payload))
+    async with engine.connect() as conn:
+        if engine.dialect.name == "postgresql":
+            await conn.exec_driver_sql("ANALYZE events")
+        stored = await conn.scalar(select(func.count()).select_from(EventModel))
+    assert stored == len(payload)
+
+
+async def plan_for(engine: AsyncEngine, statement: Select) -> str:
+    """The plan this database would use for a listing, as one string."""
+    sql = str(
+        statement.compile(
+            dialect=engine.sync_engine.dialect, compile_kwargs={"literal_binds": True}
+        )
+    )
+    explain = (
+        "EXPLAIN (ANALYZE, FORMAT JSON)"
+        if engine.dialect.name == "postgresql"
+        else "EXPLAIN QUERY PLAN"
+    )
+    async with engine.connect() as conn:
+        found = (await conn.exec_driver_sql(f"{explain} {sql}")).all()
+    # Every column: SQLite puts the words in one and Postgres returns one JSON value.
+    return "\n".join(" ".join(str(cell) for cell in row) for row in found)
+
+
 async def test_the_listing_walks_the_index_it_was_given(
     migrated_engine: AsyncEngine,
 ) -> None:
     """The index the migration built had better be the one the listing reads through.
 
-    Three thousand events over two hundred localities, so one locality is a slice of
-    the table and not the table: the only shape in which the index earns its keep.
+    Ten thousand events over two hundred localities, the reader asking for the seven
+    cells around them: two hundred rows out of ten thousand, which is the only shape
+    in which an index earns its keep. Asked at the default 10 km instead, the same
+    listing names 397 cells at once and Postgres reads the table for it, so this is the
+    tight-radius shape the index was built for and not the only one the endpoint serves.
     """
-    neighbourhood = h3.grid_disk(VIGO, rings_for(10.0))
-    region = neighbourhood[::2][:200]
-    payload: list[dict[str, object]] = []
-    for index, cell in enumerate(region):
-        payload += rows(cell, 15, index * 15)
-    async with migrated_engine.begin() as conn:
-        await conn.run_sync(lambda sync_conn: sync_conn.execute(insert(EventModel), payload))
+    walking = h3.grid_disk(VIGO, rings_for(0.5))
+    away = [cell for cell in h3.grid_disk(A_CORUNA, 12)[::2][:200] if cell not in walking]
+    payload: list[dict[str, object]] = rows(VIGO, 200, 0)
+    for index, cell in enumerate(away):
+        payload += rows(cell, 49, index * 49)
+    await load(migrated_engine, payload)
 
-    sql = str(
-        upcoming_statement(neighbourhood, STARTS, 21).compile(
-            dialect=migrated_engine.sync_engine.dialect, compile_kwargs={"literal_binds": True}
-        )
-    )
-    async with migrated_engine.connect() as conn:
-        found = (await conn.exec_driver_sql(f"EXPLAIN QUERY PLAN {sql}")).all()
-    plan = "\n".join(" ".join(str(cell) for cell in row) for row in found)
+    plan = await plan_for(migrated_engine, upcoming_statement(walking, STARTS, 21))
 
     assert "ix_events_location_cell_starts_at" in plan, plan
