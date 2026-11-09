@@ -184,6 +184,20 @@ describe('useAdminMembers', () => {
     expect(t.result.current.state.members[0]?.deactivatedAt).toBeNull()
     expect(t.result.current.state.problem).toBe('This node only shows that to its admins.')
   })
+
+  it('says what a refused switch-off was, rather than queue words about it', async () => {
+    const t = mount(useAdminMembers, {
+      ...asAdmin,
+      loadMembers: jest.fn(async () => ok([member(4)])),
+      loadMember: jest.fn(async () => ok({ member: member(4), history: [] })),
+      removeMember: jest.fn(async () => failed('already-decided')),
+    })
+    await flush()
+    await load(t.result.current.refresh)
+    await act(async () => void (await t.result.current.remove(4, 'spam')))
+    expect(t.result.current.state.problem).toBe('That account is already off, or it belongs to an admin.')
+    expect(t.result.current.state.members[0]?.deactivatedAt).toBeNull()
+  })
 })
 
 describe('useAdminInvites', () => {

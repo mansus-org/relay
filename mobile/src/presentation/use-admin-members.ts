@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { adminErrorMessage, type AdminMember, type MemberDetail } from '../domain'
+import { adminErrorMessage, type AdminError, type AdminMember, type MemberDetail } from '../domain'
 import { useUseCases } from './use-cases'
 
 /** How many accounts are read at a time; the node answers 50 when asked for nothing. */
 const PAGE = 50
+
+/** The node refuses a switch-off with the same 409 the queue uses for "somebody got there first",
+ * and on this screen it means something else entirely: that account is already off, or it belongs
+ * to an admin - which includes the one reading this. */
+const memberProblem = (error: AdminError): string =>
+  error === 'already-decided' ? 'That account is already off, or it belongs to an admin.' : adminErrorMessage(error)
 
 export type MembersState = {
   /** False until the first read comes back. */
@@ -105,7 +111,7 @@ export function useAdminMembers() {
       setState((s) => ({ ...s, removing: true, problem: null }))
       const result = await removeMember({ id, reason })
       if (!result.ok) {
-        setState((s) => ({ ...s, removing: false, problem: adminErrorMessage(result.error) }))
+        setState((s) => ({ ...s, removing: false, problem: memberProblem(result.error) }))
         return false
       }
       const signedOut = result.value
