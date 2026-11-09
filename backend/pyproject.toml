@@ -103,3 +103,26 @@ name = "Location application stays free of FastAPI, SQLAlchemy and H3"
 type = "forbidden"
 source_modules = ["relay.contexts.location.application"]
 forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "h3"]
+
+[[tool.importlinter.contracts]]
+name = "Posts layers point inward: api -> application -> domain <- infrastructure"
+type = "layers"
+layers = [
+    "relay.contexts.posts.api",
+    "relay.contexts.posts.infrastructure",
+    "relay.contexts.posts.application",
+    "relay.contexts.posts.domain",
+]
+exhaustive = false
+
+[[tool.importlinter.contracts]]
+name = "Posts domain stays pure: no FastAPI, SQLAlchemy or H3"
+type = "forbidden"
+source_modules = ["relay.contexts.posts.domain"]
+forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "h3"]
+
+[[tool.importlinter.contracts]]
+name = "Posts application stays free of FastAPI, SQLAlchemy and H3"
+type = "forbidden"
+source_modules = ["relay.contexts.posts.application"]
+forbidden_modules = ["fastapi", "sqlalchemy", "starlette", "h3"]

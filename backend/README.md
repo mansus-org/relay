@@ -3,10 +3,14 @@
 The Python (FastAPI) backend of Relay. It replaces the old Go node, and is
 built as a SOLID + Domain-Driven Design skeleton: one package
 per bounded context, with `api`, `application`, `domain` and `infrastructure`
-layers. Today it ships the skeleton, `GET /api/health`, and the `location`
-context: `GET /api/location/postal-code/{postal_code}` turns a Spanish postal
-code into the locality and H3 cell a feed is read from. Galicia only for now
-(`15`, `27`, `32`, `36`), and nothing about the viewer is stored.
+layers. Today it ships the skeleton, `GET /api/health`, and two contexts.
+
+- `location`: `GET /api/location/postal-code/{postal_code}` turns a Spanish
+  postal code into the locality and H3 cell a feed is read from. Galicia only
+  for now (`15`, `27`, `32`, `36`), and nothing about the viewer is stored.
+- `posts`: `POST /api/posts` says something, `GET /api/feed?cell=<h3>&radius=10`
+  reads a locality newest-first, `GET /api/posts/{id}` reads one post. A post
+  lives in an H3 resolution-8 cell, or in no locality at all.
 
 The architecture, testing plan and tooling are in
 [`docs/backend-development.md`](../docs/backend-development.md).
@@ -27,6 +31,8 @@ uv run uvicorn relay.main:app --reload   # serve on http://localhost:8000
 curl localhost:8000/api/health           # {"status":"ok","version":"dev"} (/health works too)
 curl localhost:8000/api/location/postal-code/15001
 # {"postal_code":"15001","place_name":"A Coruña","cell":"883925cf43fffff"}
+curl 'localhost:8000/api/feed?cell=883925cf43fffff&radius=10'
+# {"posts":[],"next_cursor":null} — empty until something is said there
 uv run pytest                            # unit, integration, API tests
 ```
 
