@@ -5,6 +5,7 @@ import {
   makeCellPlaceName,
   makeCreateCommunity,
   makeCreatePost,
+  makeGetProfile,
   makeJoinCommunity,
   makeListJoinedCommunities,
   makeLoadCommunity,
@@ -25,6 +26,9 @@ import {
   makeResolvePostalCode,
   makeRestoreSession,
   makeSubscribeToPosts,
+  makeSwitchNode,
+  makeTestNode,
+  makeUpdateProfile,
   type UseCases,
 } from '../application'
 import type { LocationProvider, PlaceNamer } from '../domain'
@@ -33,6 +37,8 @@ import { makeHttpClient } from '../infrastructure/http/client'
 import { makeHttpCommunityRepository } from '../infrastructure/http/community-repository'
 import { makeHttpEventRepository } from '../infrastructure/http/event-repository'
 import { makeHttpFeedRepository, makeHttpPostRepository } from '../infrastructure/http/feed-repository'
+import { makeHttpNodeProbe } from '../infrastructure/http/node-probe'
+import { makeHttpProfileRepository } from '../infrastructure/http/profile-repository'
 import { makeHttpPostalCodeResolver } from '../infrastructure/http/postal-code-repository'
 import { makeBrowserLocationProvider } from '../infrastructure/location/browser-geolocation'
 import { makeExpoLocationProvider, makeExpoPlaceNamer } from '../infrastructure/location/expo-location'
@@ -106,6 +112,8 @@ export function wireUseCases({
   const postalCodeStore = makePostalCodeStore({ storage: preferenceStorage })
   const communityRepository = makeHttpCommunityRepository({ http })
   const eventRepository = makeHttpEventRepository({ http })
+  const profileRepository = makeHttpProfileRepository({ http })
+  const nodeProbe = makeHttpNodeProbe()
   const postStream = makeFetchPostStream({ fetch: streamFetch ?? (globalThis.fetch as unknown as StreamFetch), getBaseUrl, getAccessToken })
 
   return {
@@ -131,6 +139,10 @@ export function wireUseCases({
     rsvpToEvent: makeRsvpToEvent({ eventRepository, cellEncoder }),
     cancelRsvp: makeCancelRsvp({ eventRepository, cellEncoder }),
     createEvent: makeCreateEvent({ eventRepository, cellEncoder }),
+    getProfile: makeGetProfile({ profileRepository, tokenReader: tokenStore }),
+    updateProfile: makeUpdateProfile({ profileRepository, tokenReader: tokenStore }),
+    testNode: makeTestNode({ nodeProbe }),
+    switchNode: makeSwitchNode({ nodeProbe, serverUrlWriter: serverUrlStore, tokenWriter: tokenStore }),
     sessionEvents,
   }
 }
