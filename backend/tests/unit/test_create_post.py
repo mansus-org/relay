@@ -7,9 +7,10 @@ import pytest
 
 from relay.contexts.posts.application import CreatePost
 from relay.contexts.posts.domain.cells import UnknownCellError
+from relay.contexts.posts.domain.post import PostNotFoundError
 from relay.shared.domain import ValidationError
 from tests.fakes.clock import FixedClock
-from tests.fakes.posts import FakePostsUnitOfWork, FixedCells
+from tests.fakes.posts import FakePostsUnitOfWork, FixedCells, a_post
 
 
 async def test_a_post_is_saved_and_handed_back_with_the_time_it_was_said() -> None:
@@ -75,3 +76,39 @@ async def test_nothing_is_committed_when_a_post_was_never_said() -> None:
 
     assert uow.committed is False
     assert await uow.posts.page_neighbouring(cells=["here"], before=None, limit=20) == []
+
+
+async def test_a_reply_keeps_the_post_it_answers() -> None:
+    root = a_post("Is the bakery closing for good?")
+    uow = FakePostsUnitOfWork([root])
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells())
+
+    reply = await use_case.execute(author_id=uuid4(), body="Back Monday.", parent_id=root.id)
+
+    assert reply.parent_id == root.id
+    assert uow.committed is True
+    assert [post.body for post in await uow.posts.replies_to(root.id)] == ["Back Monday."]
+
+
+async def test_a_reply_to_a_post_that_was_never_said_is_refused() -> None:
+    """An answer to nothing is filed where no thread will ever show it, so it is not filed."""
+    uow = FakePostsUnitOfWork()
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells())
+    nowhere = uuid4()
+
+    with pytest.raises(PostNotFoundError):
+        await use_case.execute(author_id=uuid4(), body="Back Monday.", parent_id=nowhere)
+
+    assert uow.committed is False
+    assert await uow.posts.replies_to(nowhere) == []
+
+
+async def test_a_reply_to_a_post_taken_down_is_refused() -> None:
+    taken_down = a_post("Rude, apparently.").removed()
+    uow = FakePostsUnitOfWork([taken_down])
+    use_case = CreatePost(uow=uow, clock=FixedClock(), cells=FixedCells())
+
+    with pytest.raises(PostNotFoundError):
+        await use_case.execute(author_id=uuid4(), body="+1", parent_id=taken_down.id)
+
+    assert uow.committed is False

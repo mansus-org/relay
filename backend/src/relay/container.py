@@ -27,7 +27,16 @@ from relay.contexts.events.infrastructure import (
 )
 from relay.contexts.location.application import ResolvePostalCode
 from relay.contexts.location.infrastructure import DatasetPostalCodeDirectory, H3CellEncoder
-from relay.contexts.posts.application import CreatePost, GetFeed, GetPost, PostsUnitOfWork
+from relay.contexts.posts.application import (
+    AddReaction,
+    CreatePost,
+    GetFeed,
+    GetPost,
+    GetReplies,
+    GetTallies,
+    PostsUnitOfWork,
+    RemoveReaction,
+)
 from relay.contexts.posts.infrastructure import (
     H3CellNeighbourhood,
     H3CellStandard,
@@ -145,3 +154,15 @@ class Container:
 
     def get_cancel_rsvp(self) -> CancelRsvp:
         return CancelRsvp(uow=self.events_unit_of_work())
+
+    def get_replies(self) -> GetReplies:
+        return GetReplies(uow=self.posts_unit_of_work())
+
+    def get_tallies(self) -> GetTallies:
+        return GetTallies(uow=self.posts_unit_of_work())
+
+    def get_add_reaction(self) -> AddReaction:
+        return AddReaction(uow=self.posts_unit_of_work(), clock=self.clock)
+
+    def get_remove_reaction(self) -> RemoveReaction:
+        return RemoveReaction(uow=self.posts_unit_of_work())

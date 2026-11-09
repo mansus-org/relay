@@ -61,3 +61,18 @@ def test_a_removed_post_reaches_no_feed_but_is_still_there() -> None:
     post = a_post().removed()
     assert post.moderation_status is ModerationStatus.REMOVED
     assert not post.shows_in_locality_feed
+
+
+def test_a_reply_is_only_a_post_that_answers_another() -> None:
+    root = uuid4()
+    reply = Post.write(
+        author_id=uuid4(),
+        body="Back Monday.",
+        created_at=datetime.now(UTC),
+        parent_id=root,
+    )
+    assert reply.parent_id == root
+
+
+def test_a_post_that_answers_nothing_is_not_a_reply() -> None:
+    assert a_post().parent_id is None

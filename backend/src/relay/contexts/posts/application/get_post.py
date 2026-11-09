@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from relay.contexts.posts.application.unit_of_work import PostsUnitOfWork
-from relay.contexts.posts.domain.post import ModerationStatus, Post, PostNotFoundError
+from relay.contexts.posts.domain.post import Post, PostNotFoundError
 
 
 class GetPost:
@@ -15,6 +15,6 @@ class GetPost:
     async def execute(self, post_id: UUID) -> Post:
         async with self._uow:
             post = await self._uow.posts.get(post_id)
-        if post is None or post.moderation_status is ModerationStatus.REMOVED:
+        if post is None or not post.is_up:
             raise PostNotFoundError(f"No post {post_id} to show.")
         return post

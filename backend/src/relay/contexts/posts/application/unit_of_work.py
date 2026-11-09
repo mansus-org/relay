@@ -1,10 +1,15 @@
-"""The posts unit of work: one transaction that can reach the posts table."""
+"""The posts unit of work: one transaction over posts and what people left on them."""
 
-from relay.contexts.posts.domain.ports import PostRepository
+from relay.contexts.posts.domain.ports import PostRepository, ReactionRepository
 from relay.shared.application import UnitOfWork
 
 
 class PostsUnitOfWork(UnitOfWork):
-    """A transaction over the posts table. Implementations set `posts` on entry."""
+    """A transaction reaching the posts table and the reactions on it.
+
+    Implementations set `posts` and `reactions` on entry, so one commit writes both
+    or neither.
+    """
 
     posts: PostRepository
+    reactions: ReactionRepository

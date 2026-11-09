@@ -6,18 +6,33 @@ The shapes here are the ones the mobile screens already expect, field for field:
 `cell`, `radius` and `cursor` and reads `posts` and `next_cursor`.
 """
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from relay.container import Container
-from relay.contexts.posts.application import CreatePost, GetFeed, GetPost
+from relay.contexts.posts.application import (
+    AddReaction,
+    CreatePost,
+    GetFeed,
+    GetPost,
+    GetReplies,
+    GetTallies,
+    RemoveReaction,
+)
 from relay.contexts.posts.domain.cells import DEFAULT_RADIUS_KM, CellError
 from relay.contexts.posts.domain.feed import Cursor, FeedPage, InvalidCursorError
 from relay.contexts.posts.domain.post import MAX_BODY_LENGTH, Post, PostNotFoundError
+from relay.contexts.posts.domain.reaction import (
+    AlreadyReactedError,
+    ReactionNotFoundError,
+    ReactionTally,
+)
+from relay.contexts.posts.domain.tally import PostTally
 from relay.shared.api.dependencies import get_container
 from relay.shared.domain import ValidationError
 
@@ -52,6 +67,23 @@ def display_name(author_id: UUID) -> str:
     return f"Member {str(author_id)[:8]}"
 
 
+async def get_reader_id(authorization: Annotated[str | None, Header()] = None) -> UUID | None:
+    """Who is reading, if they said so. Reads are public, so this never refuses anyone.
+
+    The same placeholder as `get_author_id` and the same deletion at rebase time: with no
+    accounts there is no token to verify, so a bearer value that is an id is taken as the
+    reader. Nobody named still gets the whole post; only their own reactions would have
+    come back marked.
+    """
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    try:
+        return UUID(token)
+    except ValueError:
+        return None
+
+
 class AuthorResponse(BaseModel):
     """Who wrote it. Mobile renders `author.name` and keeps the id for its cache."""
 
@@ -60,12 +92,15 @@ class AuthorResponse(BaseModel):
 
 
 class ReactionResponse(BaseModel):
-    """One reaction tally. Reactions are RELY-90's; the shape is here so the client
-    has something real to read once they exist."""
+    """One reaction tally: an emoji, how many left it, and whether the reader did."""
 
     emoji: str
     count: int
     mine: bool = False
+
+    @classmethod
+    def from_tally(cls, tally: ReactionTally) -> "ReactionResponse":
+        return cls(emoji=tally.emoji, count=tally.count, mine=tally.user_reacted)
 
 
 class PostResponse(BaseModel):
@@ -74,17 +109,21 @@ class PostResponse(BaseModel):
     body: str
     created_at: datetime
     location_cell: str | None = None
+    parent_id: str | None = None
     reactions: list[ReactionResponse] = []
     reply_count: int = 0
 
     @classmethod
-    def from_domain(cls, post: Post) -> "PostResponse":
+    def from_domain(cls, post: Post, tally: PostTally) -> "PostResponse":
         return cls(
             id=str(post.id),
             author=AuthorResponse(id=str(post.author_id), name=display_name(post.author_id)),
             body=post.body,
             created_at=post.created_at,
             location_cell=post.location_cell,
+            parent_id=str(post.parent_id) if post.parent_id else None,
+            reactions=[ReactionResponse.from_tally(one) for one in tally.reactions],
+            reply_count=tally.reply_count,
         )
 
 
@@ -95,11 +134,23 @@ class FeedResponse(BaseModel):
     next_cursor: str | None = None
 
     @classmethod
-    def from_domain(cls, page: FeedPage) -> "FeedResponse":
+    def from_domain(cls, page: FeedPage, tallies: Mapping[UUID, PostTally]) -> "FeedResponse":
         return cls(
-            posts=[PostResponse.from_domain(post) for post in page.posts],
+            posts=[PostResponse.from_domain(post, tallies[post.id]) for post in page.posts],
             next_cursor=str(page.next_cursor) if page.next_cursor is not None else None,
         )
+
+
+class RepliesResponse(BaseModel):
+    """One level of a thread, oldest first."""
+
+    posts: list[PostResponse]
+
+    @classmethod
+    def from_domain(
+        cls, replies: list[Post], tallies: Mapping[UUID, PostTally]
+    ) -> "RepliesResponse":
+        return cls(posts=[PostResponse.from_domain(post, tallies[post.id]) for post in replies])
 
 
 class NewPostRequest(BaseModel):
@@ -113,6 +164,17 @@ class NewPostRequest(BaseModel):
     body: str
     location_cell: str | None = None
     community_id: UUID | None = None
+    parent_id: UUID | None = None
+
+
+class NewReactionRequest(BaseModel):
+    """The emoji to leave on a post.
+
+    One person leaves an emoji once, so sending the same one twice is refused; a second
+    emoji is a different thing said and is welcome.
+    """
+
+    emoji: str
 
 
 def get_create_post(
@@ -133,6 +195,30 @@ def get_post_use_case(
     return container.get_post()
 
 
+def get_replies_use_case(
+    container: Annotated[Container, Depends(get_container)],
+) -> GetReplies:
+    return container.get_replies()
+
+
+def get_tallies_use_case(
+    container: Annotated[Container, Depends(get_container)],
+) -> GetTallies:
+    return container.get_tallies()
+
+
+def get_add_reaction_use_case(
+    container: Annotated[Container, Depends(get_container)],
+) -> AddReaction:
+    return container.get_add_reaction()
+
+
+def get_remove_reaction_use_case(
+    container: Annotated[Container, Depends(get_container)],
+) -> RemoveReaction:
+    return container.get_remove_reaction()
+
+
 @router.post(
     "/posts",
     response_model=PostResponse,
@@ -141,7 +227,8 @@ def get_post_use_case(
     description=(
         "Saves a post and returns it. At most 500 characters of text. "
         "`location_cell` has to be a real resolution-8 H3 cell, because a post filed "
-        "anywhere else is a post no locality feed will ever read."
+        "anywhere else is a post no locality feed will ever read. "
+        "`parent_id` makes it a reply to that post instead of a post of its own."
     ),
     responses={
         400: {
@@ -149,6 +236,7 @@ def get_post_use_case(
             "or `location_cell` was not a resolution-8 H3 cell."
         },
         401: {"description": "No bearer token to write as."},
+        404: {"description": "No post with that `parent_id` to reply to."},
     },
 )
 async def create_post(
@@ -162,10 +250,15 @@ async def create_post(
             body=payload.body,
             location_cell=payload.location_cell,
             community_id=payload.community_id,
+            parent_id=payload.parent_id,
         )
     except (ValidationError, CellError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    return PostResponse.from_domain(post)
+    except PostNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    # Nothing has been said about a post that was just saved, so its tallies are the
+    # empty ones; asking the database for them would be a query for zeroes.
+    return PostResponse.from_domain(post, PostTally())
 
 
 @router.get(
@@ -182,6 +275,8 @@ async def create_post(
 async def read_feed(
     cell: Annotated[str, Query(description="Your current H3 resolution-8 cell.")],
     use_case: Annotated[GetFeed, Depends(get_feed_use_case)],
+    tallies: Annotated[GetTallies, Depends(get_tallies_use_case)],
+    reader: Annotated[UUID | None, Depends(get_reader_id)],
     radius: Annotated[
         float,
         Query(description="How far out to read, in km: between 0 and 25."),
@@ -198,7 +293,8 @@ async def read_feed(
         )
     except (CellError, InvalidCursorError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    return FeedResponse.from_domain(page)
+    counted = await tallies.execute([post.id for post in page.posts], viewer=reader)
+    return FeedResponse.from_domain(page, counted)
 
 
 @router.get(
@@ -211,9 +307,94 @@ async def read_feed(
 async def read_post(
     post_id: UUID,
     use_case: Annotated[GetPost, Depends(get_post_use_case)],
+    tallies: Annotated[GetTallies, Depends(get_tallies_use_case)],
+    reader: Annotated[UUID | None, Depends(get_reader_id)],
 ) -> PostResponse:
     try:
         post = await use_case.execute(post_id)
     except PostNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    return PostResponse.from_domain(post)
+    counted = await tallies.execute([post.id], viewer=reader)
+    return PostResponse.from_domain(post, counted[post.id])
+
+
+@router.get(
+    "/posts/{post_id}/replies",
+    response_model=RepliesResponse,
+    summary="What was said under a post",
+    description=(
+        "The replies to a post, oldest first, so a thread reads the way it happened. "
+        "One level at a time: a reply to a reply is another call here with that reply's "
+        "id. Public, like every read in Relay."
+    ),
+    responses={404: {"description": "No post with that id."}},
+)
+async def read_replies(
+    post_id: UUID,
+    use_case: Annotated[GetReplies, Depends(get_replies_use_case)],
+    tallies: Annotated[GetTallies, Depends(get_tallies_use_case)],
+    reader: Annotated[UUID | None, Depends(get_reader_id)],
+) -> RepliesResponse:
+    try:
+        replies = await use_case.execute(post_id)
+    except PostNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    counted = await tallies.execute([post.id for post in replies], viewer=reader)
+    return RepliesResponse.from_domain(replies, counted)
+
+
+@router.post(
+    "/posts/{post_id}/reactions",
+    response_model=ReactionResponse,
+    status_code=201,
+    summary="Put an emoji on a post",
+    description=(
+        "Leaves one emoji on a post and answers what that emoji now counts, so the "
+        "client never has to guess its own way. One person leaves an emoji on a post "
+        "once: the same one again is refused, a different one is a different thing said."
+    ),
+    responses={
+        400: {"description": "The emoji was empty, or too long to be one."},
+        401: {"description": "No bearer token to react as."},
+        404: {"description": "No post with that id."},
+        409: {"description": "That emoji was already left on this post."},
+    },
+)
+async def react_to_post(
+    post_id: UUID,
+    payload: NewReactionRequest,
+    reader: Annotated[UUID, Depends(get_author_id)],
+    use_case: Annotated[AddReaction, Depends(get_add_reaction_use_case)],
+) -> ReactionResponse:
+    try:
+        tally = await use_case.execute(post_id=post_id, user_id=reader, emoji=payload.emoji)
+    except ValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except PostNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except AlreadyReactedError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return ReactionResponse.from_tally(tally)
+
+
+@router.delete(
+    "/posts/{post_id}/reactions/{emoji}",
+    status_code=204,
+    summary="Take an emoji back",
+    description="Removes an emoji you left on a post. Taking back one you never left is a 404.",
+    responses={
+        401: {"description": "No bearer token to react as."},
+        404: {"description": "No post with that id, or you had not left that emoji on it."},
+    },
+)
+async def unreact_to_post(
+    post_id: UUID,
+    emoji: str,
+    reader: Annotated[UUID, Depends(get_author_id)],
+    use_case: Annotated[RemoveReaction, Depends(get_remove_reaction_use_case)],
+) -> Response:
+    try:
+        await use_case.execute(post_id=post_id, user_id=reader, emoji=emoji)
+    except ReactionNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return Response(status_code=204)
