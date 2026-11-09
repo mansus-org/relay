@@ -13,6 +13,7 @@ import { MonoLabel } from '../../../../src/presentation/components/MonoLabel'
 import { NavBar } from '../../../../src/presentation/components/NavBar'
 import { Stamp } from '../../../../src/presentation/components/Stamp'
 import { colors, fonts, line, shadow } from '../../../../src/presentation/theme'
+import { markDecided } from '../../../../src/presentation/use-admin-queue'
 import { useAdminPost } from '../../../../src/presentation/use-admin-post'
 
 /**
@@ -34,10 +35,14 @@ export default function AdminPost() {
   const post = state.post
 
   const approve = async () => {
-    if (await decide('approve')) back()
+    if (await decide('approve')) {
+      markDecided(id)
+      back()
+    }
   }
   const remove = async () => {
     if (await decide('remove', reason.trim())) {
+      markDecided(id)
       setAsking(false)
       back()
     }

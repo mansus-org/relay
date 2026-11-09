@@ -5,7 +5,7 @@ import { err, ok, type AdminError, type AdminMember, type Invite, type Moderated
 import { useAdminInvites } from '../use-admin-invites'
 import { useAdminMembers } from '../use-admin-members'
 import { useAdminPost } from '../use-admin-post'
-import { useAdminQueue } from '../use-admin-queue'
+import { markDecided, useAdminQueue } from '../use-admin-queue'
 import { UseCasesProvider } from '../use-cases'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -90,6 +90,25 @@ describe('useAdminQueue', () => {
     await load(t.result.current.refresh)
     expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['p1'])
     expect(t.result.current.state.problem).toBe('Could not reach Relay. Check your connection and try again.')
+  })
+
+  it('drops a post you settled on its own page, before the node has even answered', async () => {
+    let answer!: (posts: ModeratedPost[]) => void
+    const loadQueue = jest
+      .fn()
+      .mockResolvedValueOnce(ok([post('q1'), post('q2')]))
+      .mockImplementation(() => new Promise((resolve) => (answer = (posts) => resolve(ok(posts)))))
+    const t = mount(useAdminQueue, { loadQueue })
+    await load(t.result.current.refresh)
+
+    markDecided('q1')
+    act(() => void t.result.current.refresh())
+    expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['q2'])
+
+    // What the node finally sends is the list, whatever was on screen while it was on its way.
+    await act(async () => answer([post('q2')]))
+    expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['q2'])
+    t.unmount()
   })
 })
 
