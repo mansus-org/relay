@@ -3,7 +3,7 @@
 The Python (FastAPI) backend of Relay. It replaces the old Go node, and is
 built as a SOLID + Domain-Driven Design skeleton: one package
 per bounded context, with `api`, `application`, `domain` and `infrastructure`
-layers. Today it ships the skeleton, `GET /api/health`, and two contexts.
+layers. Today it ships the skeleton, `GET /api/health`, and three contexts.
 
 - `location`: `GET /api/location/postal-code/{postal_code}` turns a Spanish
   postal code into the locality and H3 cell a feed is read from. Galicia only
@@ -11,6 +11,12 @@ layers. Today it ships the skeleton, `GET /api/health`, and two contexts.
 - `posts`: `POST /api/posts` says something, `GET /api/feed?cell=<h3>&radius=10`
   reads a locality newest-first, `GET /api/posts/{id}` reads one post. A post
   lives in an H3 resolution-8 cell, or in no locality at all.
+- `communities`: `GET /api/communities?cell=<h3>` lists the communities whose own
+  radius reaches where you are, `POST /api/communities` founds one, `GET
+  /api/communities/{id}` reads one, `GET /api/communities/{id}/feed` reads its
+  posts (members only), `POST /api/communities/{id}/join` joins it from a cell —
+  which is refused if you are standing outside its radius. A member who joined
+  under a pseudonym is named by it on that feed and nowhere else.
 
 The architecture, testing plan and tooling are in
 [`docs/backend-development.md`](../docs/backend-development.md).
@@ -33,6 +39,8 @@ curl localhost:8000/api/location/postal-code/15001
 # {"postal_code":"15001","place_name":"A Coruña","cell":"883925cf43fffff"}
 curl 'localhost:8000/api/feed?cell=883925cf43fffff&radius=10'
 # {"posts":[],"next_cursor":null} — empty until something is said there
+curl 'localhost:8000/api/communities?cell=883925cf43fffff'
+# [] — every community whose radius reaches that cell; empty until someone founds one
 uv run pytest                            # unit, integration, API tests
 ```
 
