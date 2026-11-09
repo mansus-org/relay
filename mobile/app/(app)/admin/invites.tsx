@@ -25,12 +25,22 @@ export default function AdminInvites() {
   const router = useRouter()
   const { state, refresh, loadMore, issue, revoke } = useAdminInvites()
   const [note, setNote] = useState('')
+  const [pulling, setPulling] = useState(false)
 
   useFocusEffect(
     useCallback(() => {
       void refresh()
     }, [refresh]),
   )
+
+  const pull = async () => {
+    setPulling(true)
+    try {
+      await refresh()
+    } finally {
+      setPulling(false)
+    }
+  }
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/settings'))
   const go = (tab: 'queue' | 'members' | 'invites') => {
@@ -62,7 +72,7 @@ export default function AdminInvites() {
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={false} tintColor={colors.ink} onRefresh={() => void refresh()} />}
+        refreshControl={<RefreshControl refreshing={pulling} tintColor={colors.ink} onRefresh={() => void pull()} />}
       >
         <HardShadow offset={shadow.regular}>
           <View style={styles.composer}>

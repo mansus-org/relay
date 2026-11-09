@@ -26,12 +26,22 @@ export default function AdminMembers() {
   const { state, refresh, loadMore, openMember, closeMember, remove } = useAdminMembers()
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')
+  const [pulling, setPulling] = useState(false)
 
   useFocusEffect(
     useCallback(() => {
       void refresh()
     }, [refresh]),
   )
+
+  const pull = async () => {
+    setPulling(true)
+    try {
+      await refresh()
+    } finally {
+      setPulling(false)
+    }
+  }
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/settings'))
   const go = (tab: 'queue' | 'members' | 'invites') => {
@@ -67,7 +77,7 @@ export default function AdminMembers() {
       />
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={false} tintColor={colors.ink} onRefresh={() => void refresh()} />}
+        refreshControl={<RefreshControl refreshing={pulling} tintColor={colors.ink} onRefresh={() => void pull()} />}
       >
         {state.problem ? <Alert message={state.problem} /> : null}
         {state.notice ? (
