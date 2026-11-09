@@ -96,6 +96,7 @@ class User(RelationalEntity):
     password_hash: str
     is_admin: bool = False
     created_at: datetime | None = None
+    deactivated_at: datetime | None = None
 
     @classmethod
     def new(
@@ -113,3 +114,12 @@ class User(RelationalEntity):
     def name(self) -> str:
         """What to call them: what they chose, or their handle when they did not choose one."""
         return str(self.display_name) or str(self.username)
+
+    @property
+    def is_deactivated(self) -> bool:
+        """Whether somebody in charge has switched this account off.
+
+        The account is still there: their handle stays taken and what they said stays
+        read. They just cannot get back in, and putting them back clears the timestamp.
+        """
+        return self.deactivated_at is not None

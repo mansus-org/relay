@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from relay.container import Container
 from relay.contexts.auth.application import ReadAuthenticatedUser
-from relay.contexts.auth.domain.errors import InvalidTokenError
+from relay.contexts.auth.domain.errors import AccountDeactivatedError, InvalidTokenError
 from relay.contexts.auth.domain.user import User
 from relay.shared.api.dependencies import get_container
 
@@ -35,6 +35,8 @@ async def get_current_user(
         raise _unauthorized("Send an access token as a bearer token.")
     try:
         return await read_user.execute(credentials.credentials)
+    except AccountDeactivatedError as error:
+        raise _forbidden(str(error)) from error
     except InvalidTokenError as error:
         raise _unauthorized(str(error)) from error
 
@@ -47,4 +49,28 @@ def _unauthorized(detail: str) -> HTTPException:
     )
 
 
+def _forbidden(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def require_admin(user: CurrentUser) -> User:
+    """Only the people who run this Relay. Any route can ask for it: `admin: AdminUser`.
+
+    It is `get_current_user` with one more question, so a stranger and a signed-in
+    neighbour are refused in two different ways: 401 says "I do not know you", 403 says
+    "I know you, and this is not yours to do". Being an admin is a column an operator
+    sets, never something this API hands out - there is no route anywhere that writes it.
+    """
+    if not user.is_admin:
+        raise _forbidden("That is for the people who run Relay.")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]

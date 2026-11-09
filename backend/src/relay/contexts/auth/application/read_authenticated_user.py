@@ -1,7 +1,7 @@
 """Who a bearer token belongs to. Every protected route starts here."""
 
 from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
-from relay.contexts.auth.domain.errors import InvalidTokenError
+from relay.contexts.auth.domain.errors import AccountDeactivatedError, InvalidTokenError
 from relay.contexts.auth.domain.ports import TokenBroker
 from relay.contexts.auth.domain.user import User
 
@@ -20,4 +20,11 @@ class ReadAuthenticatedUser:
         if user is None:
             # Signed and in date, and still no account: it went away after the token was minted.
             raise InvalidTokenError("That token belongs to an account that is gone.")
+        if user.is_deactivated:
+            # Checked here, on the way to every protected route, and not only at the login
+            # form: switching someone off has to stop them now, not when their next token
+            # happens to run out. Their refresh tokens are revoked at the same moment.
+            raise AccountDeactivatedError(
+                "That account has been deactivated. Ask whoever runs your Relay."
+            )
         return user

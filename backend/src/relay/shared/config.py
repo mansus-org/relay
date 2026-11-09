@@ -36,6 +36,16 @@ class Settings(BaseSettings):
         default=None,
         description="Password for ADMIN_USERNAME, at least 8 characters (ADMIN_PASSWORD)",
     )
+    invite_base_url: str | None = Field(
+        default=None,
+        description=(
+            "The site an invite link is built from, with or without its scheme "
+            "(INVITE_BASE_URL), e.g. relay.example.org. `POST /admin/invites` turns a token "
+            "into `<this>/join?token=...` so the admin has a link to send. Left unset the "
+            "invite comes back as a token and no link: a link to a host somebody guessed at "
+            "sends people to a Relay that is not this one."
+        ),
+    )
     version: str = Field(default="dev")
     log_level: str = Field(default="INFO")
     web_dist_dir: Path | None = Field(default=None, description="Exported web build to serve at /")

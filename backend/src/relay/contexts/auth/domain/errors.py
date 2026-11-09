@@ -39,5 +39,18 @@ class InviteSpentError(InviteNotUsableError):
     """
 
 
+class InviteNoteTooLongError(AuthError):
+    """The note on an invite outgrew what a note is for."""
+
+
+class AccountDeactivatedError(AuthError):
+    """The account exists and the password was right, but somebody switched it off.
+
+    Only ever raised after the password has been proved, so it cannot be used to find out
+    who has an account. The person on the other side is told, rather than handed a wrong
+    password they would have to go and ask about.
+    """
+
+
 class InvalidTokenError(AuthError):
     """A token Relay will not accept: wrong signature, wrong kind, expired, or spent."""

@@ -22,7 +22,7 @@ def test_the_migrations_are_one_line_and_not_a_fork() -> None:
 async def test_upgrade_head_records_revision(migrated_engine: AsyncEngine) -> None:
     async with migrated_engine.connect() as conn:
         version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
-    assert version == "0005_replies_reactions"
+    assert version == "0006_moderation"
 
 
 async def test_upgrade_creates_the_auth_tables(migrated_engine: AsyncEngine) -> None:

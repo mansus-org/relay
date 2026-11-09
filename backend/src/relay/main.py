@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from relay.container import Container
+from relay.contexts.admin.api import admin
 from relay.contexts.auth.api import auth
 from relay.contexts.communities.api import communities
 from relay.contexts.events.api import events
@@ -47,6 +48,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(stream.router, prefix="/api")
     app.include_router(communities.router, prefix="/api")
     app.include_router(events.router, prefix="/api")
+    app.include_router(admin.router, prefix="/api")
     app.include_router(health.router)  # plain /health for container probes
     if settings.web_dist_dir is not None:
         app.include_router(web_router(settings.web_dist_dir))  # last: it matches every other path

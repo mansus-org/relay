@@ -28,6 +28,7 @@ USERNAME_LENGTH = 20
 DISPLAY_NAME_LENGTH = 60
 PASSWORD_HASH_LENGTH = 120
 TOKEN_LENGTH = 64
+NOTE_LENGTH = 200
 
 
 @overload
@@ -75,6 +76,7 @@ class UserRow(Base):
     password_hash: Mapped[str] = mapped_column(String(PASSWORD_HASH_LENGTH))
     is_admin: Mapped[bool] = mapped_column(server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(), server_default=func.now())
+    deactivated_at: Mapped[datetime | None] = _utc()
 
     @classmethod
     def from_entity(cls, user: User) -> "UserRow":
@@ -85,6 +87,7 @@ class UserRow(Base):
             password_hash=user.password_hash,
             is_admin=user.is_admin,
             created_at=naive_utc(user.created_at),
+            deactivated_at=naive_utc(user.deactivated_at),
         )
 
     def to_entity(self) -> User:
@@ -95,6 +98,7 @@ class UserRow(Base):
             password_hash=self.password_hash,
             is_admin=self.is_admin,
             created_at=aware_utc(self.created_at),
+            deactivated_at=aware_utc(self.deactivated_at),
         )
 
 
@@ -110,6 +114,7 @@ class InviteRow(Base):
     used_at: Mapped[datetime | None] = _utc()
     revoked_at: Mapped[datetime | None] = _utc()
     created_at: Mapped[datetime] = mapped_column(DateTime(), server_default=func.now())
+    note: Mapped[str | None] = mapped_column(String(NOTE_LENGTH))
 
     @classmethod
     def from_entity(cls, invite: Invite) -> "InviteRow":
@@ -121,6 +126,7 @@ class InviteRow(Base):
             used_at=naive_utc(invite.used_at),
             revoked_at=naive_utc(invite.revoked_at),
             created_at=naive_utc(invite.created_at),
+            note=invite.note,
         )
 
     def to_entity(self) -> Invite:
@@ -132,6 +138,7 @@ class InviteRow(Base):
             used_at=aware_utc(self.used_at),
             revoked_at=aware_utc(self.revoked_at),
             created_at=aware_utc(self.created_at),
+            note=self.note,
         )
 
 
