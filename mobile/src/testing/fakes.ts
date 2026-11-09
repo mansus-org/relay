@@ -8,12 +8,16 @@ import {
   type PostalArea,
   type PostalCodeError,
   type PostalCodeResolver,
-  type Post,
+  type ApiError,
+  type NewPost,
+  type PostRepository,
+  type Reaction,
   err,
   ok,
   type AuthError,
   type AuthRepository,
   type AuthTokens,
+  type Post,
   type RefreshedSession,
   type Result,
   type ServerUrlReader,
@@ -81,6 +85,37 @@ export const makePost = (id: string, overrides: Partial<Post> = {}): Post => ({
   replyCount: 0,
   ...overrides,
 })
+
+type ScriptedPost<T> = Result<T, ApiError> | (() => Promise<Result<T, ApiError>>)
+
+/** A PostRepository answering from scripted results; records the calls it receives. */
+export const makeFakePostRepository = (
+  script: {
+    get?: ScriptedPost<Post>
+    replies?: ScriptedPost<readonly Post[]>
+    create?: ScriptedPost<Post>
+    react?: ScriptedPost<Reaction>
+    unreact?: ScriptedPost<void>
+  } = {},
+) => {
+  const calls = {
+    get: [] as string[],
+    replies: [] as string[],
+    create: [] as NewPost[],
+    react: [] as { postId: string; emoji: string }[],
+    unreact: [] as { postId: string; emoji: string }[],
+  }
+  const answer = <T>(scripted: ScriptedPost<T> | undefined): Promise<Result<T, ApiError>> =>
+    typeof scripted === 'function' ? scripted() : Promise.resolve(scripted ?? err<ApiError>('unexpected'))
+  const repository: PostRepository = {
+    get: (id) => (calls.get.push(id), answer(script.get)),
+    listReplies: (postId) => (calls.replies.push(postId), answer(script.replies)),
+    create: (post) => (calls.create.push(post), answer(script.create)),
+    react: (postId, emoji) => (calls.react.push({ postId, emoji }), answer(script.react)),
+    unreact: (postId, emoji) => (calls.unreact.push({ postId, emoji }), answer(script.unreact)),
+  }
+  return { repository, calls }
+}
 
 export const makePostDto = (id: string, extra: Record<string, unknown> = {}) => ({
   id,

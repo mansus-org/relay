@@ -48,18 +48,25 @@ export const dropReplies = (entries: readonly ThreadEntry[], postId: string): re
   return [...entries.slice(0, at), { ...entries[at]!, open: false }, ...entries.slice(end)]
 }
 
-/** Adds a reply under the post it answers, after everything already shown there. */
+/** Adds a reply under the post it answers, after everything already shown there, and opens it. */
 export const appendReply = (entries: readonly ThreadEntry[], postId: string, reply: Post): readonly ThreadEntry[] => {
   const found = under(entries, postId)
   if (!found) return entries
   const [at, end] = found
   const depth = Math.min(entries[at]!.depth + 1, MAX_THREAD_DEPTH)
-  return [...entries.slice(0, at + 1), { post: reply, depth, open: false }, ...entries.slice(end)]
+  const opened = { ...entries[at]!, open: true }
+  return [
+    ...entries.slice(0, at),
+    opened,
+    ...entries.slice(at + 1, end),
+    { post: reply, depth, open: false },
+    ...entries.slice(end),
+  ]
 }
 
-/** Puts what the server sent back in place of the post on screen with the same id. */
-export const replacePost = (entries: readonly ThreadEntry[], post: Post): readonly ThreadEntry[] =>
-  entries.map((e) => (e.post.id === post.id ? { ...e, post } : e))
+/** Puts a post in place of the one on screen with the id given, which is how a reply sent off its placeholder. */
+export const replacePost = (entries: readonly ThreadEntry[], postId: string, post: Post): readonly ThreadEntry[] =>
+  entries.map((e) => (e.post.id === postId ? { ...e, post } : e))
 
 /** Takes a post out of the thread, and everything said under it with it. */
 export const removeEntry = (entries: readonly ThreadEntry[], postId: string): readonly ThreadEntry[] => {
