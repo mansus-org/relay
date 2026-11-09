@@ -16,7 +16,10 @@ from relay.contexts.events.domain.listing import ListingStart
 from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp
 from relay.contexts.events.infrastructure.h3_cells import rings_for
 from relay.contexts.events.infrastructure.models import EventModel
-from relay.contexts.events.infrastructure.repository import listing_statement
+from relay.contexts.events.infrastructure.repository import (
+    SqlAlchemyRsvpRepository,
+    listing_statement,
+)
 from relay.contexts.events.infrastructure.unit_of_work import SqlAlchemyEventsUnitOfWork
 from relay.shared.application import Clock
 from relay.shared.infrastructure.database import create_session_factory
@@ -172,7 +175,8 @@ async def test_an_event_starting_at_the_wall_is_on_the_page_asked_for_that_wall(
 async def test_an_event_starting_at_the_wall_is_not_in_the_past_yet(
     uow: SqlAlchemyEventsUnitOfWork,
 ) -> None:
-    """The wall belongs to the forwards page in both directions: starting now is not started."""
+    """The wall belongs to the forwards page, not the backwards one: starting now is not
+    started."""
     await seed(uow, planned("starting now", hours=0), planned("last week", hours=-24))
 
     back = await listing(uow, [VIGO], start=ListingStart(at=STARTS, backwards=True))
@@ -241,7 +245,7 @@ async def test_events_sharing_a_start_time_still_come_out_a_page_at_a_time(
     first = await uow.events.page_listing(cells=[VIGO], start=ListingStart(at=STARTS), limit=20)
     second = await uow.events.page_listing(
         cells=[VIGO],
-        start=ListingStart(at=first[-1].starts_at, last_id=first[-1].id),
+        start=ListingStart(at=first[-1].starts_at, seen_id=first[-1].id),
         limit=20,
     )
 
@@ -263,11 +267,36 @@ async def test_a_page_read_backwards_stops_where_it_was_told_to(
     first = await uow.events.page_listing(cells=[VIGO], start=wall, limit=2)
     second = await uow.events.page_listing(
         cells=[VIGO],
-        start=ListingStart(at=first[-1].starts_at, last_id=first[-1].id, backwards=True),
+        start=ListingStart(at=first[-1].starts_at, seen_id=first[-1].id, backwards=True),
         limit=2,
     )
 
     assert [event.title for event in first + second] == ["event 0", "event 1", "event 2", "event 3"]
+
+
+async def test_a_past_read_backwards_through_a_crowd_of_one_start_time(
+    uow: SqlAlchemyEventsUnitOfWork,
+) -> None:
+    """Yesterday's twenty suppers all started at seven too, and `past` has to page them.
+
+    The same row-by-row cut, read the other way: the marker names the row the page ended
+    on, so the ones that did not fit are on the next page down rather than gone.
+    """
+    await seed(uow, *[planned(f"choir {n}", hours=-1) for n in range(25)])
+
+    first = await uow.events.page_listing(
+        cells=[VIGO], start=ListingStart(at=STARTS, backwards=True), limit=20
+    )
+    second = await uow.events.page_listing(
+        cells=[VIGO],
+        start=ListingStart(at=first[-1].starts_at, seen_id=first[-1].id, backwards=True),
+        limit=20,
+    )
+
+    assert len(first) == 20 and len(second) == 5
+    seen = [(event.starts_at, event.id) for event in first + second]
+    assert len(set(seen)) == 25
+    assert seen == sorted(seen, reverse=True)
 
 
 async def test_how_many_are_going_comes_back_per_event(uow: SqlAlchemyEventsUnitOfWork) -> None:
@@ -343,12 +372,18 @@ async def test_the_same_member_cannot_take_two_places(migrated_engine: AsyncEngi
 
 async def test_one_member_cannot_take_two_places_by_saying_it_twice_at_once(
     migrated_engine: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two taps, one place: the loser hears "already going" and not "you're in".
 
     Each tap runs in its own session, because that is what two taps are. Neither can see
     what the other is writing, so the check in the use case passes for both and the
     unique pair is the only thing left between one member and two places.
+
+    Both taps are made to arrive at that check together, rather than hoping the event
+    loop interleaves them: left to itself, the second tap can just as easily notice the
+    first and be refused by the check, and the test would pass without the table ever
+    being asked.
     """
     factory = create_session_factory(migrated_engine)
     event = planned("Book swap")
@@ -356,6 +391,21 @@ async def test_one_member_cannot_take_two_places_by_saying_it_twice_at_once(
     async with SqlAlchemyEventsUnitOfWork(factory) as unit:
         await unit.events.add(event)
         await unit.commit()
+
+    checked = asyncio.Barrier(2)
+    seen_by_taps: list[Rsvp | None] = []
+    checked_together = SqlAlchemyRsvpRepository.by_member
+
+    async def both_ask_at_once(
+        self: SqlAlchemyRsvpRepository, *, event_id: UUID, member_id: UUID
+    ) -> Rsvp | None:
+        found = await checked_together(self, event_id=event_id, member_id=member_id)
+        # Nobody writes until both have read, so neither can have seen the other's place.
+        seen_by_taps.append(found)
+        await asyncio.wait_for(checked.wait(), 10)
+        return found
+
+    monkeypatch.setattr(SqlAlchemyRsvpRepository, "by_member", both_ask_at_once)
 
     async def tap() -> int | AlreadyRsvpedError:
         going = RsvpEvent(SqlAlchemyEventsUnitOfWork(factory), Clock())
@@ -367,6 +417,7 @@ async def test_one_member_cannot_take_two_places_by_saying_it_twice_at_once(
 
     results = await asyncio.gather(tap(), tap())
 
+    assert seen_by_taps == [None, None], "both taps read before either wrote"
     assert [count for count in results if isinstance(count, int)] == [1]
     assert len([r for r in results if isinstance(r, AlreadyRsvpedError)]) == 1
 
@@ -414,8 +465,8 @@ async def load(engine: AsyncEngine, payload: list[dict[str, object]]) -> None:
     assert stored == len(payload)
 
 
-async def plan_for(engine: AsyncEngine, statement: Select) -> str:
-    """The plan this database would use for a listing, as one string."""
+async def plan_for(engine: AsyncEngine, statement: Select) -> list[dict] | str:
+    """The plan this database would use for a listing: a tree, or its words."""
     sql = str(
         statement.compile(
             dialect=engine.sync_engine.dialect, compile_kwargs={"literal_binds": True}
@@ -428,13 +479,39 @@ async def plan_for(engine: AsyncEngine, statement: Select) -> str:
     )
     async with engine.connect() as conn:
         found = (await conn.exec_driver_sql(f"{explain} {sql}")).all()
-    # Every column: SQLite puts the words in one and Postgres returns one JSON value.
+    if engine.dialect.name == "postgresql":
+        # One JSON value, and the driver has already read it into Python for us.
+        return found[0][0]
+    # SQLite: one row per step of the plan, the words about it in the last column.
     return "\n".join(" ".join(str(cell) for cell in row) for row in found)
+
+
+def index_conditions(plan: list[dict] | str, index: str) -> list[str]:
+    """What the database says it will use `index` for, in its own words.
+
+    Naming the index proves nothing: an index over `(location_cell, starts_at)` is walked
+    for the locality alone just as happily as for the cut, and a listing that filters the
+    time afterwards reads the whole locality again on every page.
+    """
+    if isinstance(plan, str):
+        return [line for line in plan.splitlines() if index in line]
+
+    found: list[str] = []
+
+    def walk(step: dict) -> None:
+        if step.get("Index Name") == index:
+            found.append(str(step.get("Index Cond", "")))
+        for child in step.get("Plans") or []:
+            walk(child)
+
+    for top in plan:
+        walk(top["Plan"])
+    return found
 
 
 @pytest.mark.parametrize(
     "start",
-    [ListingStart(at=STARTS), ListingStart(at=STARTS, last_id=uuid4())],
+    [ListingStart(at=STARTS), ListingStart(at=STARTS, seen_id=uuid4())],
     ids=["from a date", "from a marker"],
 )
 async def test_the_listing_walks_the_index_it_was_given(
@@ -450,7 +527,8 @@ async def test_the_listing_walks_the_index_it_was_given(
 
     The marker page is the one worth reading the plan for: its cut is a row pair, and a
     database that could not see through that pair would read the whole locality again on
-    every page after the first.
+    every page after the first. So the plan is read for the time, not just for the name
+    of the index.
     """
     walking = h3.grid_disk(VIGO, rings_for(0.5))
     away = [cell for cell in h3.grid_disk(A_CORUNA, 12)[::2][:200] if cell not in walking]
@@ -461,4 +539,6 @@ async def test_the_listing_walks_the_index_it_was_given(
 
     plan = await plan_for(migrated_engine, listing_statement(walking, start, 21))
 
-    assert "ix_events_location_cell_starts_at" in plan, plan
+    used = index_conditions(plan, "ix_events_location_cell_starts_at")
+    assert used, plan
+    assert all("starts_at" in condition for condition in used), plan

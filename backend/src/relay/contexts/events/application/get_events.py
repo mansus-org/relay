@@ -52,4 +52,4 @@ class GetEvents:
 def _marker(events: list[Event], start: ListingStart) -> ListingStart:
     """Where the next page starts: the last row of this one, reading the same way."""
     last = events[-1]
-    return ListingStart(at=last.starts_at, last_id=last.id, backwards=start.backwards)
+    return ListingStart(at=last.starts_at, seen_id=last.id, backwards=start.backwards)

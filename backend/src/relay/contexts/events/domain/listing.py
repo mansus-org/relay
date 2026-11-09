@@ -26,7 +26,8 @@ class ListingStart(ValueObject):
     An instant cannot say where a page ended on its own. Hosts pick start times, and a
     town's events all start at seven, so twenty of them can share one `starts_at`: a
     page that resumes at "after seven" either repeats them or skips them. The id of the
-    last row read is what makes "after this one" mean one row and not one minute.
+    row the page stopped on is what makes "after this one" mean one row and not one
+    minute.
 
     `backwards` is the other direction, and the reason `past` is a word rather than a
     date: a reader asking for what already happened wants the recent part of it, so the
@@ -34,7 +35,7 @@ class ListingStart(ValueObject):
     """
 
     at: datetime
-    last_id: UUID | None = None
+    seen_id: UUID | None = None
     backwards: bool = False
 
     @field_validator("at")
@@ -46,7 +47,7 @@ class ListingStart(ValueObject):
         cut at a different instant on every machine that runs it.
         """
         if at.tzinfo is None:
-            raise ValueError("A page starts from a time that says which zone it is in.")
+            raise ValidationError("A page starts from a time that says which zone it is in.")
         return at.astimezone(UTC)
 
     @classmethod
@@ -54,15 +55,15 @@ class ListingStart(ValueObject):
         """Where `from` says to start reading, in this grammar and no other::
 
             past
-            <instant>
-            <instant>~<id>
-            past~<instant>
-            past~<instant>~<id>
+            <wall>
+            <wall>~<id>
+            past~<wall>
+            past~<wall>~<id>
 
-        Nothing is the default wall: now, forwards, and `past` on its own is now read
-        the other way. A date (`2026-03-04`) is that midnight in UTC and a full instant
-        is itself, so the same word pages from anywhere. The `<instant>~<id>` shape is
-        the marker a page handed back: the last row it showed, and the direction to keep
+        A `<wall>` is a date (`2026-03-04`, read as its midnight in UTC) or a full
+        instant, so the same word pages from anywhere. An empty `from` reads forwards
+        from now; `past` alone reads backwards from now. The `<wall>~<id>` shape is the
+        marker a page handed back: the row it stopped on, and the direction to keep
         reading in.
         """
         written = (value or "").strip()
@@ -78,7 +79,7 @@ class ListingStart(ValueObject):
         last = parts[1] if len(parts) == 2 else ""
         return cls(
             at=instant(wall) if wall else now,
-            last_id=_row(last) if last else None,
+            seen_id=_row(last) if last else None,
             backwards=backwards,
         )
 
@@ -89,8 +90,8 @@ class ListingStart(ValueObject):
         time it arrives, and a page marker is only any use if it comes back whole.
         """
         written = self.at.astimezone(UTC).isoformat().replace("+00:00", "Z")
-        if self.last_id is not None:
-            written = f"{written}{SEPARATOR}{self.last_id}"
+        if self.seen_id is not None:
+            written = f"{written}{SEPARATOR}{self.seen_id}"
         return f"{PAST}{SEPARATOR}{written}" if self.backwards else written
 
 

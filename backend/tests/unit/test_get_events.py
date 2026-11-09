@@ -105,7 +105,7 @@ async def test_a_page_is_a_page_and_not_the_whole_calendar() -> None:
 
     assert len(page.events) == 20
     assert page.next_from.at == NOW + timedelta(hours=20)
-    assert page.next_from.last_id == page.events[-1].event.id
+    assert page.next_from.seen_id == page.events[-1].event.id
 
 
 async def test_the_last_page_promises_no_more() -> None:

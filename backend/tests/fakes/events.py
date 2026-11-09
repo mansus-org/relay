@@ -62,23 +62,27 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
 
         A page that stops in the middle of a minute has to resume in the middle of that
         minute, so the fake compares the pair the repository does rather than the time
-        alone.
+        alone. Only a marker is strict; a wall with no row named yet puts whatever starts
+        exactly at it on the forwards page, not the backwards one.
         """
         wanted = set(cells)
+        seen_id = start.seen_id
 
-        def beyond_marker(event: Event) -> bool:
-            wall = (start.at, start.last_id)
+        def on_this_page(event: Event) -> bool:
+            if seen_id is None:
+                # No row named yet, so the instant alone cuts it, and the event at the
+                # wall belongs on the page going forwards from there.
+                if start.backwards:
+                    return event.starts_at < start.at
+                return event.starts_at >= start.at
+            wall = (start.at, seen_id)
             seen = (event.starts_at, event.id)
-            if start.last_id is None:
-                wall, seen = start.at, event.starts_at
-            if start.backwards:
-                return bool(seen < wall)
-            return bool(seen > wall) if start.last_id else bool(seen >= wall)
+            return seen < wall if start.backwards else seen > wall
 
         found = [
             event
             for event in self._items.values()
-            if event.location_cell in wanted and beyond_marker(event)
+            if event.location_cell in wanted and on_this_page(event)
         ]
         found.sort(key=lambda event: (event.starts_at, event.id), reverse=start.backwards)
         return found[:limit]

@@ -5,7 +5,6 @@ from urllib.parse import parse_qs, urlencode
 from uuid import UUID
 
 import pytest
-from pydantic import ValidationError
 
 from relay.contexts.events.domain.event import InvalidTimeError
 from relay.contexts.events.domain.listing import (
@@ -14,6 +13,7 @@ from relay.contexts.events.domain.listing import (
     ListingStart,
     UnknownPageError,
 )
+from relay.shared.domain import ValidationError
 from tests.fakes.events import STARTS, an_event
 
 TOKYO = timezone(timedelta(hours=9))
@@ -27,21 +27,21 @@ def test_a_page_marker_is_written_in_utc() -> None:
 
 def test_a_page_marker_survives_the_query_string_it_is_sent_in() -> None:
     """Why a `Z` and not a `+00:00`: a `+` in a query string is a space by the time it lands."""
-    marker = ListingStart(at=STARTS, last_id=ROW).as_text()
+    marker = ListingStart(at=STARTS, seen_id=ROW).as_text()
 
     assert parse_qs(urlencode({"from": marker}))["from"][0] == marker
 
 
 def test_a_marker_read_back_names_the_same_row_it_wrote() -> None:
     """The whole contract of a cursor: out of one response, back into the next request."""
-    start = ListingStart(at=STARTS, last_id=ROW)
+    start = ListingStart(at=STARTS, seen_id=ROW)
 
     assert ListingStart.read(start.as_text(), now=NOW) == start
 
 
 def test_a_marker_from_the_past_read_back_is_still_from_the_past() -> None:
     """The direction travels in the marker, or the next page reads the wrong way."""
-    start = ListingStart(at=STARTS, last_id=ROW, backwards=True)
+    start = ListingStart(at=STARTS, seen_id=ROW, backwards=True)
 
     assert ListingStart.read(start.as_text(), now=NOW) == start
 
@@ -103,7 +103,11 @@ def test_the_past_can_be_told_where_to_start_reading_back_from() -> None:
 
 def test_a_page_that_does_not_say_which_zone_it_starts_in_is_refused() -> None:
     """A time with no zone would mean the machine's own clock, and every machine would cut
-    the same page in a different place."""
+    the same page in a different place.
+
+    Relay's own refusal rather than pydantic's, because the HTTP edge turns that one into
+    a 400 and would 500 on this one.
+    """
     with pytest.raises(ValidationError, match="which zone"):
         ListingStart(at=datetime(2026, 3, 4))
 
@@ -137,7 +141,7 @@ def test_a_page_holds_its_events_in_the_order_it_was_given_them() -> None:
 def test_a_page_and_its_tallies_survive_being_read_back_as_a_value() -> None:
     """The page is handed across the boundary as data, so equality is the contract."""
     event = an_event()
-    marker = ListingStart(at=STARTS, last_id=ROW)
+    marker = ListingStart(at=STARTS, seen_id=ROW)
     page = EventListingPage(events=(EventDetails(event=event, rsvp_count=3),), next_from=marker)
 
     assert page == EventListingPage(

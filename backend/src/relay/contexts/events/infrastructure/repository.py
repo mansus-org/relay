@@ -4,7 +4,7 @@ from collections.abc import Iterable, Sequence
 from datetime import UTC
 from uuid import UUID
 
-from sqlalchemy import Select, delete, func, select, tuple_
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,30 +19,42 @@ def listing_statement(cells: list[str], start: ListingStart, limit: int) -> Sele
     """One page of the listing, in the direction it was asked to be read.
 
     `IN` leaves out the events that named no locality at all, which is what keeps them
-    out of every locality's list. The page is cut at a row and not at an instant:
-    `(starts_at, id)` compared as a pair, because hosts pick start times and a town's
-    events all start at seven — a cut at "after seven" would drop every other event at
-    seven that did not fit on the page. Postgres reads that pair back into an indexable
-    `starts_at >= :wall`, so the marker costs no more than a plain date would. Built
-    here rather than inline so the query the repository runs is the query a test can put
-    under EXPLAIN.
+    out of every locality's list. The page is cut at a row and not at an instant, because
+    hosts pick start times and a town's events all start at seven: a cut at "after
+    seven" would drop every other event at seven that did not fit on the page.
+
+    That cut is written as a range over the time with a tie-break at its edge, and not as
+    `(starts_at, id) > (:wall, :seen)`. Both databases flatten the row pair into that
+    range today, but the flattening is the planner's doing and not something to build
+    on: a database that read a row pair as one value would have no range to use the index
+    for, and would read the whole locality again for every page. Built here rather than
+    inline so the query the repository runs is the query a test can put under EXPLAIN.
     """
     statement = select(EventModel).where(EventModel.location_cell.in_(cells))
-    # The wall is bound in UTC however the marker was written. On Postgres an instant is
-    # an instant; on SQLite the column holds UTC text and a wall in another zone would
-    # be compared as the words for that other clock, and cut the page in the wrong place.
+    # The wall is bound in UTC however it arrived. `ListingStart` already keeps it there;
+    # this is the second line, because on SQLite the column holds UTC text and a wall in
+    # another zone would be compared as the words for that other clock.
     wall = start.at.astimezone(UTC)
-    if start.last_id is None:
-        # A date somebody typed, and what starts exactly at it belongs on their page.
-        # `past` asks for what has already started, so the event at the wall exactly is
-        # in neither: it is starting now, which is nobody's past.
-        cut, bound = EventModel.starts_at, wall
-        keep = cut < bound if start.backwards else cut >= bound
+    if start.seen_id is None:
+        # A wall with no row yet, so what starts exactly at it belongs on the page.
+        # Read backwards it does not: an event starting at the wall is starting now,
+        # which is nobody's past. The two directions split time at the wall, and the
+        # row sitting on it is on exactly one of them.
+        statement = statement.where(
+            EventModel.starts_at < wall if start.backwards else EventModel.starts_at >= wall
+        )
     else:
-        # A marker names a row already read, so it cuts strictly past itself either way.
-        cut, bound = tuple_(EventModel.starts_at, EventModel.id), (wall, start.last_id)
-        keep = cut < bound if start.backwards else cut > bound
-    statement = statement.where(keep)
+        # A marker names a row already read, so this page is strictly past it either way:
+        # everything on the far side of the wall, or at it and further along than that row.
+        at_the_wall = (EventModel.starts_at == wall) & (
+            EventModel.id < start.seen_id if start.backwards else EventModel.id > start.seen_id
+        )
+        # The wall is named twice on purpose. The tie-break already implies which side of
+        # it the page is on, but a range said on its own is something a database can use
+        # the index for, rather than reading the locality and filtering afterwards.
+        up_to = EventModel.starts_at <= wall if start.backwards else EventModel.starts_at >= wall
+        clear = EventModel.starts_at < wall if start.backwards else EventModel.starts_at > wall
+        statement = statement.where(up_to, clear | at_the_wall)
     order = (
         (EventModel.starts_at.desc(), EventModel.id.desc())
         if start.backwards

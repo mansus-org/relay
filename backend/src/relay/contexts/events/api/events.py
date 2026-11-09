@@ -11,7 +11,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from relay.container import Container
 from relay.contexts.events.application import (
@@ -158,7 +158,10 @@ class RsvpResponse(BaseModel):
     """
 
     event_id: str
-    rsvp_count: int
+    rsvp_count: int = Field(
+        description="Counted after your place was saved, so it includes you, and anyone "
+        "who said they were coming in the same moment."
+    )
 
     @classmethod
     def from_domain(cls, outcome: RsvpOutcome) -> "RsvpResponse":
