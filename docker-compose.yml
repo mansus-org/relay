@@ -57,9 +57,12 @@ services:
     # first start instead of baked into an image we would re-download per upgrade.
     # An empty OLLAMA_MODEL leaves the sidecar running with nothing in it, which is
     # the honest state of RELY-102 today.
+    #
+    # The image's ENTRYPOINT is /bin/ollama, so a bare `command:` here would be read
+    # as ollama's own arguments and die on the usage screen. The entrypoint becomes
+    # the shell and the script becomes its argument.
+    entrypoint: ["sh", "-c"]
     command:
-      - sh
-      - -c
       - |
         ollama serve &
         server_pid=$$!
