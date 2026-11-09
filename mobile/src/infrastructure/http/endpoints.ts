@@ -31,3 +31,13 @@ export const postalCodePath = (code: string) => `/location/postal-code/${encodeU
 export const EVENTS_PATH = '/events'
 export const eventPath = (id: string) => `${EVENTS_PATH}/${encodeURIComponent(id)}`
 export const eventRsvpPath = (id: string) => `${eventPath(id)}/rsvp`
+
+// Admin. Served by the backend (RELY-93): every route here answers 403 unless the token is an admin's.
+export const ADMIN_QUEUE_PATH = '/admin/queue'
+export const adminPostPath = (id: string) => `${ADMIN_QUEUE_PATH}/${encodeURIComponent(id)}`
+/** Approving and removing are two routes, not one with a flag; the reason goes in the body. */
+export const adminReviewPath = (id: string, action: 'approve' | 'remove') => `${adminPostPath(id)}/${action}`
+export const ADMIN_MEMBERS_PATH = '/admin/members'
+export const adminMemberPath = (id: number) => `${ADMIN_MEMBERS_PATH}/${id}`
+export const ADMIN_INVITES_PATH = '/admin/invites'
+export const adminInvitePath = (id: number) => `${ADMIN_INVITES_PATH}/${id}`

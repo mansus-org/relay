@@ -24,6 +24,9 @@ const version = Constants.expoConfig?.version ?? ''
  * The screen where a person owns their own account: the name they go by, the node that keeps it,
  * and the way out. Two rows are here to say a thing is coming rather than to do it, because a
  * dead control reads worse than an honest one.
+ *
+ * The Moderation row is not one of those. It is only there when the node says this account runs
+ * it, because every screen behind it answers 403 to anybody else.
  */
 export default function Settings() {
   const router = useRouter()
@@ -105,22 +108,26 @@ export default function Settings() {
           ]}
         />
 
-        <SectionLabel>Admin</SectionLabel>
-        <RowList
-          rows={[
-            {
-              key: 'moderation',
-              title: 'Moderation',
-              lead: (
-                <IconBox muted>
-                  <ShieldIcon size={20} color={colors.paper} />
-                </IconBox>
-              ),
-              muted: true,
-              end: <Soon />,
-            },
-          ]}
-        />
+        {profile?.isAdmin ? (
+          <>
+            <SectionLabel>Admin</SectionLabel>
+            <RowList
+              rows={[
+                {
+                  key: 'moderation',
+                  title: 'Moderation',
+                  lead: (
+                    <IconBox>
+                      <ShieldIcon size={20} color={colors.paper} />
+                    </IconBox>
+                  ),
+                  end: <Value strong>Open</Value>,
+                  onPress: () => router.push('/admin/queue'),
+                },
+              ]}
+            />
+          </>
+        ) : null}
 
         <SectionLabel>Account</SectionLabel>
         <RowList rows={[{ key: 'signout', title: 'Sign out', onPress: () => setSignOutOpen(true), danger: true }]} />

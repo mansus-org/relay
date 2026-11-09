@@ -2,7 +2,7 @@ import { DEFAULT_SERVER_URL, displayNameError, err, ok, type Profile } from '../
 import { makeFakeNodeProbe, makeFakeProfileRepository, makeMemoryServerUrlStore, makeMemoryTokenStore, makeNodeTest } from '../../testing/fakes'
 import { makeGetProfile, makeReadServerUrl, makeSwitchNode, makeTestNode, makeUpdateProfile } from '..'
 
-const profile: Profile = { handle: 'ada', displayName: 'Ada L' }
+const profile: Profile = { handle: 'ada', displayName: 'Ada L', isAdmin: false }
 
 describe('readServerUrl', () => {
   it('answers with the node stored, which is the built-in one until someone moves', async () => {

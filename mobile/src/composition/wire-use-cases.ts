@@ -6,7 +6,16 @@ import {
   makeCreateCommunity,
   makeCreatePost,
   makeGetProfile,
+  makeIssueInvite,
   makeJoinCommunity,
+  makeLoadInvites,
+  makeLoadMember,
+  makeLoadMembers,
+  makeLoadModeratedPost,
+  makeLoadQueue,
+  makeRemoveMember,
+  makeRevokeInvite,
+  makeReviewPost,
   makeListJoinedCommunities,
   makeLoadCommunity,
   makeLoadCommunityFeed,
@@ -42,6 +51,9 @@ import { makeHttpClient } from '../infrastructure/http/client'
 import { makeHttpCommunityRepository } from '../infrastructure/http/community-repository'
 import { makeHttpEventRepository } from '../infrastructure/http/event-repository'
 import { makeHttpFeedRepository, makeHttpPostRepository } from '../infrastructure/http/feed-repository'
+import { makeHttpInviteRepository } from '../infrastructure/http/invite-repository'
+import { makeHttpMemberRepository } from '../infrastructure/http/member-repository'
+import { makeHttpModerationRepository } from '../infrastructure/http/moderation-repository'
 import { makeHttpNodeProbe } from '../infrastructure/http/node-probe'
 import { makeHttpProfileRepository } from '../infrastructure/http/profile-repository'
 import { makeHttpPostalCodeResolver } from '../infrastructure/http/postal-code-repository'
@@ -118,6 +130,9 @@ export function wireUseCases({
   const communityRepository = makeHttpCommunityRepository({ http })
   const eventRepository = makeHttpEventRepository({ http })
   const profileRepository = makeHttpProfileRepository({ http })
+  const moderationRepository = makeHttpModerationRepository({ http })
+  const memberRepository = makeHttpMemberRepository({ http })
+  const inviteRepository = makeHttpInviteRepository({ http })
   const nodeProbe = makeHttpNodeProbe()
   const postStream = makeFetchPostStream({ fetch: streamFetch ?? (globalThis.fetch as unknown as StreamFetch), getBaseUrl, getAccessToken })
   const postRepository = makeHttpPostRepository({ http })
@@ -128,6 +143,15 @@ export function wireUseCases({
     logout,
     restoreSession: makeRestoreSession({ tokenReader: tokenStore, tokenWriter: tokenStore, refreshSession }),
     loadFeed: makeLoadFeed({ feedRepository: makeHttpFeedRepository({ http }) }),
+    loadQueue: makeLoadQueue({ moderationRepository }),
+    loadModeratedPost: makeLoadModeratedPost({ moderationRepository }),
+    reviewPost: makeReviewPost({ moderationRepository }),
+    loadMembers: makeLoadMembers({ memberRepository }),
+    loadMember: makeLoadMember({ memberRepository }),
+    removeMember: makeRemoveMember({ memberRepository }),
+    loadInvites: makeLoadInvites({ inviteRepository }),
+    issueInvite: makeIssueInvite({ inviteRepository }),
+    revokeInvite: makeRevokeInvite({ inviteRepository }),
     resolveLocation: makeResolveLocation({ locationProvider: location, cellEncoder, placeNamer: namer }),
     resolvePostalCode: makeResolvePostalCode({ resolver: makeHttpPostalCodeResolver({ http }), store: postalCodeStore }),
     readPostalCode: makeReadPostalCode({ store: postalCodeStore }),

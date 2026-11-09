@@ -2,6 +2,8 @@
 export type Profile = {
   readonly handle: string
   readonly displayName: string
+  /** Whether this node lets the account run moderation. The node decides; nothing here guesses. */
+  readonly isAdmin: boolean
 }
 
 export type User = {
