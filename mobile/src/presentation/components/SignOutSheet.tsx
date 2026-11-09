@@ -33,8 +33,8 @@ export function SignOutSheet({ visible, host, busy, onConfirm, onCancel }: Props
         account stays on the server, and you sign back in with the same handle and password.
       </Text>
       <View style={styles.actions}>
-        <Button label={busy ? 'Signing out…' : 'Sign out'} onPress={onConfirm} disabled={busy} />
         <Button variant="ghost" label="Stay signed in" onPress={onCancel} disabled={busy} />
+        <Button label={busy ? 'Signing out…' : 'Sign out'} onPress={onConfirm} disabled={busy} />
       </View>
     </Sheet>
   )

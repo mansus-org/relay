@@ -68,8 +68,8 @@ export function DisplayNameSheet({ visible, currentName, handle, busy, error, on
         </MonoLabel>
       ) : null}
       <View style={styles.actions}>
-        <Button label={busy ? 'Saving…' : 'Save'} onPress={() => onSave(name.trim())} disabled={!canSave} />
         <Button variant="ghost" label="Cancel" onPress={onCancel} disabled={busy} />
+        <Button label={busy ? 'Saving…' : 'Save'} onPress={() => onSave(name.trim())} disabled={!canSave} />
       </View>
       <MonoLabel size={11} tracking={0.1} color={colors.ink2} style={styles.note}>
         {`Your handle stays @${handle}.`}
