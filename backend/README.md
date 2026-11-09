@@ -10,7 +10,11 @@ layers. Today it ships the skeleton, `GET /api/health`, and five contexts.
   for now (`15`, `27`, `32`, `36`), and nothing about the viewer is stored.
 - `posts`: `POST /api/posts` says something, `GET /api/feed?cell=<h3>&radius=10`
   reads a locality newest-first, `GET /api/posts/{id}` reads one post. A post
-  lives in an H3 resolution-8 cell, or in no locality at all. Sending a
+  lives in an H3 resolution-8 cell, or in no locality at all.
+  `GET /api/stream?cell=<h3>` is that same locality pushed: the connection stays
+  open and every post said within the radius arrives as an `event: post`, with
+  the same body the feed carries. Nothing is remembered between connections —
+  what was said while you were away is the feed's to give you. Sending a
   `parent_id` answers a post instead of starting one, and
   `GET /api/posts/{id}/replies` reads one level of that thread oldest-first.
   `POST /api/posts/{id}/reactions` leaves an emoji on a post and
@@ -64,6 +68,8 @@ curl localhost:8000/api/location/postal-code/15001
 # {"postal_code":"15001","place_name":"A Coruña","cell":"883925cf43fffff"}
 curl 'localhost:8000/api/feed?cell=883925cf43fffff&radius=10'
 # {"posts":[],"next_cursor":null} — empty until something is said there
+curl -N 'localhost:8000/api/stream?cell=883925cf43fffff'
+# an open stream: `event: post` for each post said within 10 km, `: keepalive` while nothing is
 curl 'localhost:8000/api/communities?cell=883925cf43fffff'
 # [] — every community whose radius reaches that cell; empty until someone founds one
 curl 'localhost:8000/api/events?cell=883925cf43fffff&radius=10'
@@ -116,6 +122,7 @@ with `ALLOW_INSECURE_SECRET_KEY=1`.
 | `VERSION` | `dev` | Reported by `/health` |
 | `LOG_LEVEL` | `INFO` | JSON logs on stdout |
 | `WEB_DIST_DIR` | unset | Exported web build to serve at `/` (SPA fallback to `index.html`). Unset = API only |
+| `STREAM_KEEPALIVE_SECONDS` | `30` | How long a live stream goes quiet before it sends a keepalive comment. Shorter than whatever sits in front of Relay closes an idle connection for, or the stream drops for nobody at all |
 
 ## Web app and combined image
 
