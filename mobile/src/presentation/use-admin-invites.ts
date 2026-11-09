@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { adminErrorMessage, type Invite } from '../domain'
+import { adminErrorMessage, type AdminError, type Invite } from '../domain'
 import { useUseCases } from './use-cases'
 
 /** How many invites are read at a time. */
 const PAGE = 50
+
+/** The one refusal an invite ever gets is that the link is already spent, and that is worth saying
+ * in its own words - "somebody got there first" belongs to the queue, not to a link. */
+const inviteProblem = (error: AdminError): string =>
+  error === 'already-decided' ? 'That link is already spent.' : adminErrorMessage(error)
 
 export type InvitesState = {
   /** False until the first read comes back. */
@@ -57,7 +62,7 @@ export function useAdminInvites() {
       loaded: true,
       invites: result.ok ? result.value : s.invites,
       more: result.ok ? result.value.length === PAGE : s.more,
-      problem: result.ok ? s.problem : adminErrorMessage(result.error),
+      problem: result.ok ? s.problem : inviteProblem(result.error),
     }))
   }, [loadInvites])
 
@@ -75,7 +80,7 @@ export function useAdminInvites() {
       loadingMore: false,
       invites: result.ok ? [...s.invites, ...result.value] : s.invites,
       more: result.ok ? result.value.length === PAGE : s.more,
-      problem: result.ok ? s.problem : adminErrorMessage(result.error),
+      problem: result.ok ? s.problem : inviteProblem(result.error),
     }))
   }, [loadInvites, state.invites.length])
 
@@ -85,7 +90,7 @@ export function useAdminInvites() {
       setState((s) => ({ ...s, issuing: true, problem: null }))
       const result = await issueInvite({ note })
       if (!result.ok) {
-        setState((s) => ({ ...s, issuing: false, problem: adminErrorMessage(result.error) }))
+        setState((s) => ({ ...s, issuing: false, problem: inviteProblem(result.error) }))
         return false
       }
       setState((s) => ({ ...s, issuing: false, fresh: result.value, invites: [result.value, ...s.invites] }))
@@ -110,7 +115,7 @@ export function useAdminInvites() {
         ...s,
         revoking: null,
         invites: result.ok ? s.invites.map((invite) => (invite.id === id ? result.value : invite)) : before,
-        problem: result.ok ? s.problem : adminErrorMessage(result.error),
+        problem: result.ok ? s.problem : inviteProblem(result.error),
       }))
     },
     [revokeInvite, state.invites],
