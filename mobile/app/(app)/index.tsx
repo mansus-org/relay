@@ -6,6 +6,7 @@ import { FEED_RADIUS_KM } from '../../src/domain'
 import { useAuth } from '../../src/presentation/auth'
 import { Alert } from '../../src/presentation/components/Alert'
 import { Avatar } from '../../src/presentation/components/Avatar'
+import { Button } from '../../src/presentation/components/Button'
 import { Fab } from '../../src/presentation/components/Fab'
 import { FeedPostCard } from '../../src/presentation/components/FeedPostCard'
 import { GeoRing, GeoSun, GeoWedge } from '../../src/presentation/components/Geo'
@@ -23,7 +24,18 @@ export default function Feed() {
   const { user, logout } = useAuth()
   // A stranger reads the feed of whatever place the address names, so a place can be shared.
   const { code } = useLocalSearchParams<{ code?: string }>()
-  const { state, enableLocation, setPostalCode, changePlace, backToFeed, refresh, loadMore, showPending } = useFeed({
+  const {
+    state,
+    enableLocation,
+    useBrowserLocation,
+    canUseBrowserLocation,
+    setPostalCode,
+    changePlace,
+    backToFeed,
+    refresh,
+    loadMore,
+    showPending,
+  } = useFeed({
     requestedCode: code ?? null,
     onPlaced: (next) => router.setParams({ code: next }),
   })
@@ -111,7 +123,14 @@ export default function Feed() {
     return (
       <View style={styles.screen}>
         {header}
-        <PostalCodePrompt onSubmit={setPostalCode} error={state.placeError} busy={state.checking} onCancel={state.cell ? backToFeed : undefined} />
+        <PostalCodePrompt
+          onSubmit={setPostalCode}
+          error={state.placeError}
+          busy={state.checking}
+          onCancel={state.cell ? backToFeed : undefined}
+          onUseLocation={canUseBrowserLocation ? useBrowserLocation : undefined}
+          askingLocation={state.askingBrowser}
+        />
       </View>
     )
   }
@@ -143,13 +162,24 @@ export default function Feed() {
           onEndReached={() => void loadMore()}
           onEndReachedThreshold={0.5}
           ListEmptyComponent={
-            state.phase === 'locating' || (!state.failed && state.posts.length === 0 && !state.cell) ? (
-              <ActivityIndicator color={colors.red} style={styles.status} accessibilityLabel={usesPostalCode() ? 'Loading your place' : 'Finding your location'} />
+            state.phase === 'locating' ? (
+              <View style={styles.status}>
+                <ActivityIndicator color={colors.red} accessibilityLabel="Finding your place" />
+                {canUseBrowserLocation ? <Button label="Type a postal code instead" onPress={changePlace} variant="ghost" /> : null}
+              </View>
+            ) : !state.failed && state.posts.length === 0 && !state.cell ? (
+              <ActivityIndicator color={colors.red} style={styles.status} accessibilityLabel="Finding your place" />
             ) : state.failed ? (
               <Alert message="Could not load the feed. Pull down to try again." />
             ) : (
               <View style={styles.emptyBlock}>
                 <Text style={styles.empty}>{signedIn ? 'Nothing nearby yet. Be the first to post.' : 'Nothing nearby yet.'}</Text>
+                {canUseBrowserLocation ? (
+                  <>
+                    <Text style={styles.emptyNote}>Relay is in Galicia first, so this place may simply be too far out.</Text>
+                    <Button label="Read somewhere else" onPress={changePlace} variant="ghost" />
+                  </>
+                ) : null}
                 {signedIn ? null : <LinkButton href="/login" label="Sign in" />}
               </View>
             )
@@ -177,7 +207,8 @@ const styles = StyleSheet.create({
   trailing: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   navLink: { minHeight: 44, justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: colors.red },
   feed: { padding: 16, paddingBottom: 110, flexGrow: 1 },
-  status: { marginTop: 32 },
+  status: { marginTop: 32, alignItems: 'center', gap: 14 },
   emptyBlock: { marginTop: 32, alignItems: 'center', gap: 10 },
   empty: { textAlign: 'center', fontFamily: fonts.body, fontSize: 17, color: colors.ink2 },
+  emptyNote: { textAlign: 'center', fontFamily: fonts.body, fontSize: 14, color: colors.ink2, maxWidth: 280 },
 })

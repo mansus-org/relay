@@ -1,3 +1,5 @@
+import { Platform } from 'react-native'
+
 import { makeFakeServer, urlOf, type FakeHandler } from '../../testing/fake-server'
 import { makeFakeLocationProvider, makeFakePlaceNamer, makeMemoryStorage } from '../../testing/fakes'
 import { wireUseCases } from '../wire-use-cases'
@@ -85,6 +87,40 @@ describe('wired feed', () => {
     expect(feed.ok && feed.value.posts[0]?.id).toBe('p1')
     expect(server.seen[0]!.params).toEqual({ cell: location.value.cell, radius: 10, cursor: undefined })
     expect(urlOf(server.seen[0]!)).toBe('https://relay.mansus.org/api/feed')
+  })
+})
+
+describe('wired feed on the web', () => {
+  const platform = Platform as unknown as { OS: string }
+  const native = platform.OS
+  const navigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+
+  afterAll(() => {
+    platform.OS = native
+    if (navigator) Object.defineProperty(globalThis, 'navigator', navigator)
+  })
+
+  it('resolves the browser position to a cell, with no geocoder left to name it', async () => {
+    Object.defineProperty(globalThis, 'navigator', {
+      value: {
+        geolocation: { getCurrentPosition: (done: (position: unknown) => void) => done({ coords: { latitude: 40.74, longitude: -73.96 } }) },
+      },
+      configurable: true,
+      writable: true,
+    })
+    platform.OS = 'web'
+    const server = makeFakeServer(() => ({
+      status: 200,
+      data: { posts: [{ id: 'p1', author: user, body: 'hi', created_at: '2026-10-29T12:00:00Z' }], next_cursor: null },
+    }))
+    const useCases = wireUseCases({ secureStorage: makeMemoryStorage(), preferenceStorage: makeMemoryStorage(), httpAdapter: server.adapter })
+
+    const location = await useCases.resolveLocation({ prompt: true })
+    if (!location.ok) throw new Error('location failed')
+    // Reverse geocoding is a native call, so the header has to make do with the postal code instead.
+    expect(location.value.placeName).toBeNull()
+    const feed = await useCases.loadFeed({ cell: location.value.cell })
+    expect(feed.ok && feed.value.posts[0]?.id).toBe('p1')
   })
 })
 

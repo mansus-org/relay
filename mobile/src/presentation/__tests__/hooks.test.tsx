@@ -1,8 +1,8 @@
 import { act, create } from 'react-test-renderer'
 import { Platform } from 'react-native'
 
-import { makeReadPostalCode, makeResolvePostalCode, type UseCases } from '../../application'
-import { err, ok, type FeedPage, type Post } from '../../domain'
+import { makeReadPostalCode, makeResolvePostalCode, type LocationError, type ResolvedLocation, type UseCases } from '../../application'
+import { err, ok, type FeedPage, type Post, type Result } from '../../domain'
 import { makeFakePostalCodeResolver, makePostalArea, makePost } from '../../testing/fakes'
 import { UseCasesProvider } from '../use-cases'
 import { useCompose } from '../use-compose'
@@ -110,9 +110,20 @@ describe('useFeed on the web', () => {
   beforeAll(() => void (platform.OS = 'web'))
   afterAll(() => void (platform.OS = native))
 
-  function setup(saved: string | null = null, initial: FeedOptions = {}) {
+  /** What the browser answers when it will not say: no position, and no point in asking it again. */
+  const refused = err({ kind: 'denied' as const, canAskAgain: false })
+
+  function setup(
+    saved: string | null = null,
+    initial: FeedOptions = {},
+    browser: Result<ResolvedLocation, LocationError> = refused,
+    hold = false,
+  ) {
     let code = saved
     let options = initial
+    let answer = browser
+    /** Set when the browser is made to wait, so the test can answer it whenever it likes. */
+    let release: ((next: Result<ResolvedLocation, LocationError>) => void) | null = null
     const store = { read: async () => code, save: async (next: string) => void (code = next) }
     const resolver = makeFakePostalCodeResolver(
       { '36201': makePostalArea('36201', 'Vigo', 'cell-vigo'), '15003': makePostalArea('15003', 'A Coruña', 'cell-coruna') },
@@ -120,7 +131,13 @@ describe('useFeed on the web', () => {
     )
     const unsubscribe = jest.fn()
     const loadFeed = jest.fn(async ({ cursor }: { cell: string; cursor?: string }) => ok(cursor ? page(['c', 'd'], null) : page(['a', 'b'], 'next')))
-    const resolveLocation = jest.fn(async () => located)
+    const resolveLocation = jest.fn(
+      () =>
+        new Promise<Result<ResolvedLocation, LocationError>>((resolve) => {
+          if (hold) release = resolve
+          else resolve(answer)
+        }),
+    )
     const subscribeToPosts = jest.fn(() => unsubscribe)
     const mounted = mount(() => useFeed(options), {
       loadFeed,
@@ -140,24 +157,79 @@ describe('useFeed on the web', () => {
         mounted.rerender()
       })
     }
-    return { ...mounted, submit, setPlaced, loadFeed, resolveLocation, resolver, saved: () => code }
+    /** Change what the browser answers, partway through. */
+    const answerWith = (next: Result<ResolvedLocation, LocationError>) => void (answer = next)
+    /** The browser answers late: after the person has already moved on without it. */
+    const answerLater = (next: Result<ResolvedLocation, LocationError>) => {
+      act(() => release!(next))
+      return flush()
+    }
+    const pressLocation = () => {
+      act(() => void mounted.result.current.useBrowserLocation())
+      return flush()
+    }
+    return { ...mounted, submit, setPlaced, pressLocation, answerWith, answerLater, loadFeed, resolveLocation, resolver, saved: () => code }
   }
 
-  it('asks for a postal code when no place was ever chosen', async () => {
-    const t = setup()
+  it('opens on where the browser says it is, without asking for a place', async () => {
+    const t = setup(null, {}, located)
     await flush()
-    expect(t.result.current.state.phase).toBe('ask')
-    expect(t.resolveLocation).not.toHaveBeenCalled()
-    expect(t.loadFeed).not.toHaveBeenCalled()
+    expect(t.resolveLocation).toHaveBeenCalledWith({ prompt: true })
+    expect(t.result.current.state.phase).toBe('ready')
+    expect(t.result.current.state.placeName).toBe('Pinheiros')
+    expect(t.loadFeed).toHaveBeenCalledWith({ cell: 'cell-1' })
+    // Nothing to look up when the browser answered: the server never sees a code.
+    expect(t.resolver.calls).toEqual([])
   })
 
-  it('opens on the saved code without asking', async () => {
+  it('opens on the browser position over the place it remembers', async () => {
+    const t = setup('36201', {}, located)
+    await flush()
+    expect(t.result.current.state.placeName).toBe('Pinheiros')
+    expect(t.loadFeed).toHaveBeenCalledWith({ cell: 'cell-1' })
+  })
+
+  it('falls back to the place it remembers when the browser will not say', async () => {
     const t = setup('36201')
     await flush()
+    expect(t.resolveLocation).toHaveBeenCalledWith({ prompt: true })
     expect(t.result.current.state.phase).toBe('ready')
     expect(t.result.current.state.placeName).toBe('Vigo')
     expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['a', 'b'])
+  })
+
+  it('asks for a postal code when neither the browser nor the person has a place', async () => {
+    const t = setup()
+    await flush()
+    expect(t.result.current.state.phase).toBe('ask')
+    expect(t.loadFeed).not.toHaveBeenCalled()
+  })
+
+  it('does not ask the browser when the address already names the place', async () => {
+    const t = setup('36201', { requestedCode: '15003' }, located)
+    await flush()
     expect(t.resolveLocation).not.toHaveBeenCalled()
+    expect(t.result.current.state.placeName).toBe('A Coruña')
+  })
+
+  it('asks the browser again from the prompt, and says when it still will not say', async () => {
+    const t = setup()
+    await flush()
+    await t.pressLocation()
+    expect(t.resolveLocation).toHaveBeenCalledTimes(2)
+    expect(t.result.current.state.phase).toBe('ask')
+    expect(t.result.current.state.askingBrowser).toBe(false)
+    expect(t.result.current.state.placeError).toBe('Your browser would not say where you are. Try a postal code.')
+  })
+
+  it('opens the feed when the browser answers the second ask', async () => {
+    const t = setup()
+    await flush()
+    t.answerWith(located)
+    await t.pressLocation()
+    expect(t.result.current.state.phase).toBe('ready')
+    expect(t.result.current.state.placeName).toBe('Pinheiros')
+    expect(t.loadFeed).toHaveBeenCalledWith({ cell: 'cell-1' })
   })
 
   it('reads the feed of a typed code and keeps it for next time', async () => {
@@ -205,13 +277,42 @@ describe('useFeed on the web', () => {
     expect(t.loadFeed).toHaveBeenCalledTimes(1)
   })
 
-  it('refreshes the saved place instead of looking for GPS', async () => {
+  it('keeps the place the person typed while the browser was still thinking', async () => {
+    const t = setup(null, {}, refused, true)
+    await flush()
+    act(() => t.result.current.changePlace())
+    await t.submit('36201')
+    expect(t.result.current.state.placeName).toBe('Vigo')
+    await t.answerLater(located)
+    // The browser had its say too late: Vigo is still on screen.
+    expect(t.result.current.state.placeName).toBe('Vigo')
+    expect(t.loadFeed).not.toHaveBeenCalledWith({ cell: 'cell-1' })
+  })
+
+  it('refreshes the place it fell back to, instead of asking the browser again', async () => {
     const t = setup('36201')
     await flush()
     await act(async () => t.result.current.loadMore())
     await act(async () => t.result.current.refresh())
-    expect(t.resolveLocation).not.toHaveBeenCalled()
+    expect(t.resolveLocation).toHaveBeenCalledTimes(1)
     expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['a', 'b'])
+  })
+
+  it('refreshes through the browser when that is where the feed opened', async () => {
+    const t = setup(null, {}, located)
+    await flush()
+    await act(async () => t.result.current.refresh())
+    expect(t.resolveLocation).toHaveBeenCalledTimes(2)
+    expect(t.loadFeed).toHaveBeenCalledTimes(2)
+  })
+
+  it('falls back to the prompt when the browser stops answering and nothing was remembered', async () => {
+    const t = setup(null, {}, located)
+    await flush()
+    t.answerWith(refused)
+    await act(async () => t.result.current.refresh())
+    expect(t.result.current.state.phase).toBe('ask')
+    expect(t.result.current.state.placeError).toBe('Your browser would not say where you are. Try a postal code.')
   })
 
   it('opens on the place the address names, not the one it remembers', async () => {

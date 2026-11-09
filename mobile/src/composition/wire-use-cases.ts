@@ -1,4 +1,5 @@
 import type { AxiosAdapter } from 'axios'
+import { Platform } from 'react-native'
 
 import {
   makeCellPlaceName,
@@ -33,6 +34,7 @@ import { makeHttpCommunityRepository } from '../infrastructure/http/community-re
 import { makeHttpEventRepository } from '../infrastructure/http/event-repository'
 import { makeHttpFeedRepository, makeHttpPostRepository } from '../infrastructure/http/feed-repository'
 import { makeHttpPostalCodeResolver } from '../infrastructure/http/postal-code-repository'
+import { makeBrowserLocationProvider } from '../infrastructure/location/browser-geolocation'
 import { makeExpoLocationProvider, makeExpoPlaceNamer } from '../infrastructure/location/expo-location'
 import { makeH3CellEncoder } from '../infrastructure/location/h3-cell-encoder'
 import { makeFetchPostStream, type StreamFetch } from '../infrastructure/stream/fetch-post-stream'
@@ -58,6 +60,9 @@ export type WireDeps = {
   readonly placeNamer?: PlaceNamer
 }
 
+/** The device geocoder that names a place does not exist on the web, so there is nothing to name it with. */
+const noPlaceName: PlaceNamer = { nameOf: async () => null }
+
 /** The one place that knows which adapters implement which ports. */
 export function wireUseCases({
   secureStorage,
@@ -65,9 +70,13 @@ export function wireUseCases({
   httpAdapter,
   fixedApiBaseUrl,
   streamFetch,
-  locationProvider = makeExpoLocationProvider(),
-  placeNamer = makeExpoPlaceNamer(),
+  locationProvider,
+  placeNamer,
 }: WireDeps): UseCases {
+  // A phone has a GPS chip and a geocoder; the web has the browser's own guess at where it is, and nothing to name it with.
+  const web = Platform.OS === 'web'
+  const location = locationProvider ?? (web ? makeBrowserLocationProvider() : makeExpoLocationProvider())
+  const namer = placeNamer ?? (web ? noPlaceName : makeExpoPlaceNamer())
   const tokenStore = makeTokenStore({ storage: secureStorage })
   const serverUrlStore = makeServerUrlStore({ storage: preferenceStorage })
   const sessionEvents = makeSessionEvents()
@@ -105,10 +114,10 @@ export function wireUseCases({
     logout,
     restoreSession: makeRestoreSession({ tokenReader: tokenStore, tokenWriter: tokenStore, refreshSession }),
     loadFeed: makeLoadFeed({ feedRepository: makeHttpFeedRepository({ http }) }),
-    resolveLocation: makeResolveLocation({ locationProvider, cellEncoder, placeNamer }),
+    resolveLocation: makeResolveLocation({ locationProvider: location, cellEncoder, placeNamer: namer }),
     resolvePostalCode: makeResolvePostalCode({ resolver: makeHttpPostalCodeResolver({ http }), store: postalCodeStore }),
     readPostalCode: makeReadPostalCode({ store: postalCodeStore }),
-    placeNameOf: makeCellPlaceName({ cellEncoder, placeNamer }),
+    placeNameOf: makeCellPlaceName({ cellEncoder, placeNamer: namer }),
     subscribeToPosts: makeSubscribeToPosts({ postStream }),
     createPost: makeCreatePost({ postRepository: makeHttpPostRepository({ http }) }),
     listJoinedCommunities: makeListJoinedCommunities({ communityRepository }),

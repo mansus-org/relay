@@ -4,8 +4,14 @@ import { AppState, Platform } from 'react-native'
 import { appendPage, bufferPost, postalCodeMessage, prependPosts, type Post } from '../domain'
 import { useUseCases } from './use-cases'
 
-/** The web has no GPS, so the user names their place with a postal code instead. */
+/** The web has no GPS of its own; the browser gets asked instead, and a postal code covers the rest. */
 export const usesPostalCode = (): boolean => Platform.OS === 'web'
+
+/** Whether the browser can be asked where it is. It cannot over plain http, where the API is not handed out. */
+const browserOffersLocation = (): boolean => typeof navigator !== 'undefined' && !!navigator.geolocation
+
+/** What to say when the browser would not answer, next to the field that still can. */
+const NOT_LOCATING = 'Your browser would not say where you are. Try a postal code.'
 
 export type FeedPhase =
   | 'locating'
@@ -31,6 +37,8 @@ export type FeedState = {
   placeError: string | null
   /** A postal-code lookup is in flight. */
   checking: boolean
+  /** The web: a "use my location" press is waiting on the browser. */
+  askingBrowser: boolean
 }
 
 const initial: FeedState = {
@@ -46,6 +54,7 @@ const initial: FeedState = {
   failed: false,
   placeError: null,
   checking: false,
+  askingBrowser: false,
 }
 
 export type FeedOptions = {
@@ -71,6 +80,12 @@ export function useFeed(options: FeedOptions = {}) {
   const loadingMore = useRef(false)
   /** The postal code the feed is currently reading, so a refresh does not have to ask storage. */
   const code = useRef<string | null>(null)
+  /** Where the feed is reading from, so a refresh goes back to the same place the same way. */
+  const source = useRef<'located' | 'code' | null>(null)
+  /** Set once the person names a place themselves; a browser answer that arrives after that is too late. */
+  const chosen = useRef(false)
+  /** Offered on the web prompt only when the browser can actually be asked. */
+  const [canUseBrowserLocation] = useState(() => usesPostalCode() && browserOffersLocation())
 
   const patch = useCallback((next: Partial<FeedState>) => setState((s) => ({ ...s, ...next })), [])
 
@@ -92,6 +107,7 @@ export function useFeed(options: FeedOptions = {}) {
   /** Resolves a typed postal code and points the feed at it. A failed lookup leaves the feed alone. */
   const applyPostalCode = useCallback(
     async (raw: string) => {
+      chosen.current = true
       patch({ checking: true, placeError: null })
       const area = await resolvePostalCode(raw)
       if (!area.ok) {
@@ -104,6 +120,7 @@ export function useFeed(options: FeedOptions = {}) {
         return
       }
       const { cell, placeName, postalCode } = area.value
+      source.current = 'code'
       code.current = postalCode
       placed.current?.(postalCode)
       setState((s) =>
@@ -118,13 +135,18 @@ export function useFeed(options: FeedOptions = {}) {
 
   /** Resolves the location, then loads the feed. `prompt` allows the permission dialog. */
   const start = useCallback(
-    async (prompt: boolean) => {
+    async (prompt: boolean, onRefused?: () => void, unless?: () => boolean) => {
       const location = await resolveLocation({ prompt })
+      // Whoever chose a place while the browser was thinking has already answered for themselves.
+      if (unless?.()) return
       if (!location.ok) {
+        // Only the web passes a fallback; a phone has nowhere to go but its own settings.
+        if (onRefused) return onRefused()
         if (location.error.kind === 'denied') patch({ phase: 'denied', canAskAgain: location.error.canAskAgain, refreshing: false })
         else patch({ phase: 'ready', failed: true, refreshing: false })
         return
       }
+      source.current = 'located'
       const { cell, placeName } = location.value
       setState((s) => (s.cell === cell ? { ...s, phase: 'ready', placeName } : { ...s, phase: 'ready', cell, placeName, posts: [], pending: [] }))
       await loadFirstPage(cell)
@@ -139,11 +161,18 @@ export function useFeed(options: FeedOptions = {}) {
     await applyPostalCode(saved)
   }, [readPostalCode, applyPostalCode, patch, requestedCode])
 
+  /** The web: the browser knows where it is more often than not, and the postal code covers the rest. */
+  const startFromBrowser = useCallback(async () => {
+    // The address already names a place; someone who followed a link to it should not be prompted for one.
+    if (requestedCode) return startFromPostalCode()
+    await start(true, () => void startFromPostalCode(), () => chosen.current)
+  }, [requestedCode, start, startFromPostalCode])
+
   useEffect(() => {
     // start() only sets state after the first await, so this is not a synchronous update.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void (usesPostalCode() ? startFromPostalCode() : start(true))
-  }, [start, startFromPostalCode])
+    void (usesPostalCode() ? startFromBrowser() : start(true))
+  }, [start, startFromBrowser])
 
   // Returning from the system settings screen after granting permission.
   const denied = state.phase === 'denied'
@@ -165,10 +194,15 @@ export function useFeed(options: FeedOptions = {}) {
 
   const refresh = useCallback(async () => {
     patch({ refreshing: true })
-    if (usesPostalCode()) {
+    if (!usesPostalCode()) await start(false)
+    else if (source.current !== 'located') {
       if (code.current) await applyPostalCode(code.current)
     } else {
-      await start(false)
+      // Back to the browser that opened it, or to the code it fell back on once the browser stopped answering.
+      await start(false, () => {
+        if (code.current) void applyPostalCode(code.current)
+        else patch({ phase: 'ask', placeError: NOT_LOCATING })
+      })
     }
     patch({ refreshing: false })
   }, [start, applyPostalCode, patch])
@@ -195,12 +229,33 @@ export function useFeed(options: FeedOptions = {}) {
     [],
   )
 
+  /** The web: ask the browser again from the prompt, and say so when it still will not answer. */
+  const useBrowserLocation = useCallback(async () => {
+    patch({ askingBrowser: true, placeError: null })
+    await start(true, () => patch({ phase: 'ask', placeError: NOT_LOCATING }))
+    patch({ askingBrowser: false })
+  }, [start, patch])
+
   /** The web: read the feed of a typed postal code. */
   const setPostalCode = useCallback((raw: string) => void applyPostalCode(raw), [applyPostalCode])
   /** The web: back to the prompt; the current feed stays put until a new place resolves. */
-  const changePlace = useCallback(() => setState((s) => ({ ...s, phase: 'ask', placeError: null })), [])
+  const changePlace = useCallback(() => {
+    chosen.current = true
+    setState((s) => ({ ...s, phase: 'ask', placeError: null }))
+  }, [])
   /** The web: leave the prompt without choosing a new place. */
   const backToFeed = useCallback(() => setState((s) => ({ ...s, phase: s.cell ? 'ready' : 'ask', placeError: null })), [])
 
-  return { state, enableLocation: () => start(true), setPostalCode, changePlace, backToFeed, refresh, loadMore, showPending }
+  return {
+    state,
+    enableLocation: () => start(true),
+    useBrowserLocation,
+    canUseBrowserLocation,
+    setPostalCode,
+    changePlace,
+    backToFeed,
+    refresh,
+    loadMore,
+    showPending,
+  }
 }

@@ -15,10 +15,21 @@ type Props = {
   busy?: boolean
   /** Offered when there is already a place to go back to, so the prompt is never a dead end. */
   onCancel?: () => void
+  /** Offered where the browser can be asked again; it is the reason this screen is usually here. */
+  onUseLocation?: () => void
+  /** The browser has not answered the retry yet. */
+  askingLocation?: boolean
 }
 
-/** Empty state for the web feed: no GPS, so the user types the place to read. */
-export function PostalCodePrompt({ onSubmit, error = null, busy = false, onCancel }: Props) {
+/** Empty state for the web feed: nothing knows where this person is, so they name the place to read. */
+export function PostalCodePrompt({
+  onSubmit,
+  error = null,
+  busy = false,
+  onCancel,
+  onUseLocation,
+  askingLocation = false,
+}: Props) {
   const [code, setCode] = useState('')
   const submit = () => onSubmit(code)
   return (
@@ -31,7 +42,7 @@ export function PostalCodePrompt({ onSubmit, error = null, busy = false, onCance
           <GeoBar width={440} left={-60} top={210} />
           <View style={styles.stamp}>
             <MonoLabel size={11} tracking={0.14} color={colors.onRed}>
-              No GPS on web
+              Find your place
             </MonoLabel>
           </View>
         </View>
@@ -46,8 +57,8 @@ export function PostalCodePrompt({ onSubmit, error = null, busy = false, onCance
           <Text style={styles.hot}>POSTAL CODE</Text>
         </Text>
         <Text style={styles.body}>
-          Relay has no location on the web. Type your postal code and the feed opens on posts from people within{' '}
-          {FEED_RADIUS_KM} km of you.
+          Relay asks your browser where you are. When it will not say, a postal code opens the feed on posts from
+          people within {FEED_RADIUS_KM} km of you.
         </Text>
         <TextField
           label="Postal code"
@@ -65,6 +76,9 @@ export function PostalCodePrompt({ onSubmit, error = null, busy = false, onCance
         />
         <View style={styles.actions}>
           <Button label="Show me nearby" onPress={submit} busy={busy} disabled={code.length !== POSTAL_CODE_LENGTH} />
+          {onUseLocation ? (
+            <Button label="Use my location" onPress={onUseLocation} variant="ghost" busy={askingLocation} />
+          ) : null}
           {onCancel ? <Button label="Back to the feed" onPress={onCancel} variant="ghost" /> : null}
         </View>
         <MonoLabel size={11.5} tracking={0.14} color={colors.ink2} style={styles.note}>

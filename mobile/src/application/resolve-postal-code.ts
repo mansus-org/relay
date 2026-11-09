@@ -1,6 +1,6 @@
 import { err, isPostalCode, type PostalArea, type PostalCodeError, type PostalCodeReader, type PostalCodeResolver, type PostalCodeWriter, type Result } from '../domain'
 
-/** The web has no GPS, so the user names their place instead and it is kept for the next visit. */
+/** A place nothing could locate, named by hand instead; a code that resolves is kept for the next visit. */
 export const makeResolvePostalCode =
   ({ resolver, store }: { resolver: PostalCodeResolver; store: PostalCodeWriter }) =>
   async (raw: string): Promise<Result<PostalArea, PostalCodeError>> => {

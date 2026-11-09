@@ -3,7 +3,7 @@ import { Platform } from 'react-native'
 import type { ReactNode } from 'react'
 
 import { makeReadPostalCode, makeResolvePostalCode, type UseCases } from '../../../src/application'
-import { ok, type FeedPage, type Post } from '../../../src/domain'
+import { err, ok, type FeedPage, type Post } from '../../../src/domain'
 import { AuthProvider } from '../../../src/presentation/auth'
 import { UseCasesProvider } from '../../../src/presentation/use-cases'
 import { makeFakePostalCodeResolver, makePostalArea, makePost } from '../../../src/testing/fakes'
@@ -43,7 +43,7 @@ const native = platform.OS
 
 function renderFeed(
   posts: Post[],
-  { saved = '15003', params = {} }: { saved?: string | null; params?: Record<string, string> } = {},
+  { saved = '15003', params = {}, located = false }: { saved?: string | null; params?: Record<string, string>; located?: boolean } = {},
 ) {
   const resolver = makeFakePostalCodeResolver({
     '15003': makePostalArea('15003', 'A Coruña', 'cell-coruna'),
@@ -55,6 +55,9 @@ function renderFeed(
     // Nothing to restore: whoever this is, they have no session.
     restoreSession: jest.fn(async () => null),
     sessionEvents: { onExpired: () => () => undefined },
+    // The browser is asked first; it usually has no answer here, which is what the postal code is for.
+    resolveLocation: async () =>
+      located ? ok({ cell: 'cell-gps', placeName: null }) : err({ kind: 'denied' as const, canAskAgain: false }),
     resolvePostalCode: makeResolvePostalCode({ resolver, store }),
     readPostalCode: makeReadPostalCode({ store }),
     loadFeed,
@@ -146,5 +149,27 @@ describe('the feed with no session', () => {
     await screen.navigate({ code: '15003' })
     expect(screen.loadFeed).toHaveBeenCalledTimes(1)
     expect(screen.loadFeed).toHaveBeenCalledWith({ cell: 'cell-vigo', cursor: undefined })
+  })
+
+  it('opens on where the browser says it is, not on the code it remembers', async () => {
+    const screen = renderFeed([makePost('a')], { saved: '15003', located: true })
+    await flush()
+    expect(screen.loadFeed).toHaveBeenCalledWith({ cell: 'cell-gps', cursor: undefined })
+    expect(screen.text('Sign in')).toBe(1)
+  })
+
+  it('offers to ask the browser again, but only when this browser can be asked', async () => {
+    const navigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    Object.defineProperty(globalThis, 'navigator', { value: { geolocation: {} }, configurable: true })
+    const asked = renderFeed([], { saved: null })
+    await flush()
+    expect(asked.text('Use my location')).toBe(1)
+
+    // Over plain http the API is never handed out, so the offer would be a dead end.
+    if (navigator) Object.defineProperty(globalThis, 'navigator', navigator)
+    const plain = renderFeed([], { saved: null })
+    await flush()
+    expect(plain.text('Use my location')).toBe(0)
+    expect(plain.text('Show me nearby')).toBe(1)
   })
 })
