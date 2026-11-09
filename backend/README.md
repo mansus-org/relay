@@ -3,7 +3,7 @@
 The Python (FastAPI) backend of Relay. It replaces the old Go node, and is
 built as a SOLID + Domain-Driven Design skeleton: one package
 per bounded context, with `api`, `application`, `domain` and `infrastructure`
-layers. Today it ships the skeleton, `GET /api/health`, and three contexts.
+layers. Today it ships the skeleton, `GET /api/health`, and four contexts.
 
 - `location`: `GET /api/location/postal-code/{postal_code}` turns a Spanish
   postal code into the locality and H3 cell a feed is read from. Galicia only
