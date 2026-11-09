@@ -5,8 +5,17 @@ The shapes here are the ones the mobile screens already expect, field for field:
 `description`, `member_count`, `location_cell`, `radius_km`, `allow_pseudonyms`,
 `is_member`, `created_by` and `created_at`, sends `cell` on the nearby list and on a
 join, and reads a feed as `posts` and `next_cursor`.
+
+The feed also carries the community's events, in `events`. That is the one place in this
+column where a communities route borrows a use case from the events context, and it is a
+door on purpose: the events context publishes "what has this community lately filed", and
+this route asks it, because the rules about which events a reader is allowed to see — the
+locality ring, what membership does and does not open — belong to events and are not
+something to write out twice here. The events array is paged by nothing: it is the newest
+ten filings, and the calendar is the surface that pages.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
@@ -33,6 +42,11 @@ from relay.contexts.communities.domain import (
     NotAMemberError,
     OutOfRangeError,
 )
+from relay.contexts.events.api.events import EventResponse
+from relay.contexts.events.application import GetCommunityAnnouncements
+from relay.contexts.events.domain.cells import CellError as EventCellError
+from relay.contexts.events.domain.community import CommunityNotFoundError as NoCommunity
+from relay.contexts.events.domain.listing import EventDetails
 from relay.contexts.posts.domain.cells import CellError
 from relay.contexts.posts.domain.feed import Cursor, InvalidCursorError
 from relay.contexts.posts.domain.post import Post
@@ -154,16 +168,28 @@ class CommunityPostResponse(BaseModel):
 
 
 class CommunityFeedResponse(BaseModel):
-    """Newest first. `next_cursor` is null once there is nothing older to ask for."""
+    """Newest first. `next_cursor` is null once there is nothing older to ask for.
+
+    `events` is what the community has lately filed, newest filed first — a plan is an
+    announcement, so it is here beside the posts that announced it and stays until
+    something newer pushes it off. It is its own list and not posts with a flag on them,
+    because a plan is paged by when it happens and a post by when it was written, and
+    two things with two clocks cannot share one cursor. Empty when no `cell` was sent:
+    a plan nobody can reach is not something to show them.
+    """
 
     posts: list[CommunityPostResponse]
     next_cursor: str | None = None
+    events: list[EventResponse] = []
 
     @classmethod
-    def from_domain(cls, page: CommunityFeedPage) -> "CommunityFeedResponse":
+    def from_domain(
+        cls, page: CommunityFeedPage, events: Sequence[EventDetails] = ()
+    ) -> "CommunityFeedResponse":
         return cls(
             posts=[CommunityPostResponse.from_domain(entry) for entry in page.posts],
             next_cursor=str(page.next_cursor) if page.next_cursor is not None else None,
+            events=[EventResponse.from_domain(details) for details in events],
         )
 
 
@@ -224,6 +250,13 @@ def get_join_community(
     container: Annotated[Container, Depends(get_container)],
 ) -> JoinCommunity:
     return container.get_join_community()
+
+
+def get_community_announcements(
+    container: Annotated[Container, Depends(get_container)],
+) -> GetCommunityAnnouncements:
+    """The events half of the feed, borrowed from the context that owns events."""
+    return container.get_community_announcements()
 
 
 def community_id_of(raw: str) -> UUID:
@@ -332,14 +365,17 @@ async def read_community(
     response_model=CommunityFeedResponse,
     summary="A community's posts, newest first",
     description=(
-        "Posts its members filed into it. For its members only: send your id as a "
+        "Posts its members filed into it, and the events it has lately filed beside "
+        "them. For its members only: send your id as a "
         "bearer token and you get the feed, and without one you get a 403 telling you "
         "to join. Paged by `created_at`: pass `next_cursor` back as `cursor` for the "
         "older pages. An author who joined under a pseudonym is named by it here and "
-        f"nowhere else; a pseudonym is at most {MAX_PSEUDONYM_LENGTH} characters."
+        f"nowhere else; a pseudonym is at most {MAX_PSEUDONYM_LENGTH} characters. "
+        "Send `cell` to be told which events you can actually get to: without it the "
+        "events list comes back empty."
     ),
     responses={
-        400: {"description": "The cursor was not one this feed handed out."},
+        400: {"description": "That cursor or that cell was not something this feed takes."},
         401: {"description": "No bearer token to read as."},
         403: {"description": "You are not a member of this community."},
         404: {"description": "No community with that id."},
@@ -348,14 +384,23 @@ async def read_community(
 async def read_community_feed(
     community_id: str,
     use_case: Annotated[GetCommunityFeed, Depends(get_community_feed_use_case)],
+    announcements: Annotated[GetCommunityAnnouncements, Depends(get_community_announcements)],
     reader: Annotated[UUID | None, Depends(get_reader_id)],
     cursor: Annotated[
         str | None, Query(description="The next_cursor from the page before this one.")
     ] = None,
+    cell: Annotated[
+        str | None,
+        Query(description="Where the reader is standing, for the events beside the posts."),
+    ] = None,
+    radius_km: Annotated[
+        float | None, Query(description="How far that reader reaches. Ten kilometres by default.")
+    ] = None,
 ) -> CommunityFeedResponse:
+    id = community_id_of(community_id)
     try:
         page = await use_case.execute(
-            community_id=community_id_of(community_id),
+            community_id=id,
             viewer=reader,
             cursor=Cursor.parse(cursor) if cursor is not None else None,
         )
@@ -365,7 +410,20 @@ async def read_community_feed(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except NotAMemberError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
-    return CommunityFeedResponse.from_domain(page)
+
+    # The events are read after the posts on purpose: the posts are what settle whether
+    # this reader may be here at all, and a community only announces its plans to people
+    # who are allowed to read what it wrote. They fail on their own terms too — a cell
+    # that is not a cell is a 400 about the cell, and not about the cursor.
+    filed: Sequence[EventDetails] = ()
+    if cell is not None:
+        try:
+            filed = await announcements.execute(community_id=id, cell=cell, radius_km=radius_km)
+        except EventCellError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except NoCommunity as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+    return CommunityFeedResponse.from_domain(page, filed)
 
 
 @router.post(

@@ -93,6 +93,26 @@ def community_listing_statement(
     )
 
 
+def recent_community_statement(community_id: UUID, cells: list[str], limit: int) -> Select:
+    """What a community has lately filed, newest filed first, for its feed.
+
+    Ordered by `created_at` and not `starts_at`, because a feed is what a community has
+    recently said and not what is coming next: the calendar reads the same rows by when
+    they happen. The two cuts are the calendar list's, and stay the same rules for the
+    same reasons — membership opens no door here, and a plan that named no place is in
+    nobody's reach.
+    """
+    return (
+        select(EventModel)
+        .where(
+            EventModel.community_id == community_id,
+            EventModel.location_cell.in_(cells),
+        )
+        .order_by(EventModel.created_at.desc(), EventModel.id.desc())
+        .limit(limit)
+    )
+
+
 class SqlAlchemyEventRepository(EventRepository):
     """Events in the same session as the unit of work that handed it over."""
 
@@ -117,6 +137,13 @@ class SqlAlchemyEventRepository(EventRepository):
         self, *, community_id: UUID, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
         statement = community_listing_statement(community_id, list(cells), start, limit)
+        rows = (await self._session.execute(statement)).scalars()
+        return [row.to_domain() for row in rows]
+
+    async def recent_for_community(
+        self, *, community_id: UUID, cells: Iterable[str], limit: int
+    ) -> list[Event]:
+        statement = recent_community_statement(community_id, list(cells), limit)
         rows = (await self._session.execute(statement)).scalars()
         return [row.to_domain() for row in rows]
 

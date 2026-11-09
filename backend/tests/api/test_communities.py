@@ -1,7 +1,7 @@
 """The five community endpoints: found one, find the ones near you, join one, read its feed."""
 
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -77,6 +77,27 @@ async def feed(http: AsyncClient, community_id: str, who: UUID = FOUNDER, **para
         f"/api/communities/{community_id}/feed", params=params, headers=as_(who)
     )
     assert response.status_code == 200, response.text
+    return response.json()
+
+
+#: A plan has to be for a time still to come, and the clock the app reads is not this one.
+NOW = datetime.now(UTC)
+
+
+def at(hours: float) -> str:
+    return (NOW + timedelta(hours=hours)).isoformat()
+
+
+async def plan(
+    http: AsyncClient, title: str, *, community_id: str, who: UUID = FOUNDER, **fields: object
+) -> dict:
+    """A member files an event under the community they belong to."""
+    response = await http.post(
+        "/api/events",
+        json={"title": title, "community_id": community_id, **fields},
+        headers=as_(who),
+    )
+    assert response.status_code == 201, response.text
     return response.json()
 
 
@@ -559,6 +580,137 @@ async def test_the_feed_of_a_community_that_was_never_founded_is_not_there(
     api: AsyncClient,
 ) -> None:
     assert (await api.get(f"/api/communities/{uuid4()}/feed", headers=as_())).status_code == 404
+
+
+# The community's events, beside its posts.
+
+
+async def test_a_communitys_events_are_on_its_feed_beside_its_posts(
+    api: AsyncClient, club: dict
+) -> None:
+    """A plan is an announcement, so it is on the feed with whatever announced it.
+
+    Two lists and not one: a post is paged by when it was written and a plan by when it
+    happens, and the two clocks cannot share a cursor.
+    """
+    await joined(api, club["id"], cell=VIGO)
+    await say(api, "Anyone re-reading The Dispossessed?", community_id=club["id"])
+    await plan(api, "Book swap", community_id=club["id"], location_cell=VIGO, starts_at=at(24))
+
+    page = await feed(api, club["id"], cell=VIGO)
+
+    assert [post["body"] for post in page["posts"]] == ["Anyone re-reading The Dispossessed?"]
+    assert [event["title"] for event in page["events"]] == ["Book swap"]
+    assert page["events"][0]["community_id"] == club["id"]
+
+
+async def test_a_feed_asked_without_a_cell_says_nothing_about_events(
+    api: AsyncClient, club: dict
+) -> None:
+    """No place to stand, nothing you could get to. The posts are not held back for it."""
+    await joined(api, club["id"], cell=VIGO)
+    await say(api, "Book swap on Thursday.", community_id=club["id"])
+    await plan(api, "Book swap", community_id=club["id"], location_cell=VIGO, starts_at=at(24))
+
+    page = await feed(api, club["id"])
+
+    assert page["events"] == []
+    assert len(page["posts"]) == 1
+
+
+async def test_an_event_outside_the_readers_reach_is_not_announced_to_them(
+    api: AsyncClient, club: dict
+) -> None:
+    """The member who filed it is not shown a plan they cannot walk to.
+
+    The club is Vigo at 5 km and the plan is A Coruña, some 170 km off. Membership is
+    what lets a member file a plan, never what lets them see one — the ticket's locality
+    rule, and the feed is not a second door around it.
+    """
+    await joined(api, club["id"], cell=VIGO)
+    await plan(
+        api,
+        "Reading in A Coruña",
+        community_id=club["id"],
+        location_cell=A_CORUNA,
+        starts_at=at(24),
+    )
+
+    assert (await feed(api, club["id"], cell=VIGO))["events"] == []
+
+
+async def test_an_event_with_no_place_yet_is_not_announced(api: AsyncClient, club: dict) -> None:
+    """A plan nobody has given a place is in nobody's reach, so it is in nobody's feed."""
+    await joined(api, club["id"], cell=VIGO)
+    await plan(api, "Venue to be confirmed", community_id=club["id"], starts_at=at(24))
+
+    assert (await feed(api, club["id"], cell=VIGO))["events"] == []
+
+
+async def test_the_feed_leads_with_what_the_community_last_filed(
+    api: AsyncClient, club: dict
+) -> None:
+    """Newest filed first, which is the opposite way round from the calendar.
+
+    "tonight" was put up first and happens first; "next month" was put up second. A feed
+    of posts leads with what is new, and a plan that is a month off but filed five seconds
+    ago is the new thing here.
+    """
+    await joined(api, club["id"], cell=VIGO)
+    await plan(api, "tonight", community_id=club["id"], location_cell=VIGO, starts_at=at(3))
+    await plan(
+        api, "next month", community_id=club["id"], location_cell=VIGO, starts_at=at(24 * 30)
+    )
+
+    assert [event["title"] for event in (await feed(api, club["id"], cell=VIGO))["events"]] == [
+        "next month",
+        "tonight",
+    ]
+
+
+async def test_a_feed_is_a_glance_and_the_calendar_is_the_scroll(
+    api: AsyncClient, club: dict
+) -> None:
+    """Ten is where the feed stops, and the community's own list keeps going past it."""
+    await joined(api, club["id"], cell=VIGO)
+    for index in range(12):
+        await plan(
+            api, f"event {index}", community_id=club["id"], location_cell=VIGO, starts_at=at(24)
+        )
+
+    assert len((await feed(api, club["id"], cell=VIGO))["events"]) == 10
+    listed = await api.get(f"/api/communities/{club['id']}/events", params={"cell": VIGO})
+
+    assert len(listed.json()["events"]) == 12
+
+
+async def test_a_stranger_asking_after_events_is_still_not_a_member(
+    api: AsyncClient, club: dict
+) -> None:
+    """The posts are read first, and they are what say whether this reader may be here."""
+    await joined(api, club["id"], NEIGHBOUR, cell=VIGO)
+    await plan(
+        api,
+        "Book swap",
+        community_id=club["id"],
+        who=NEIGHBOUR,
+        location_cell=VIGO,
+        starts_at=at(24),
+    )
+
+    assert (
+        await api.get(f"/api/communities/{club['id']}/feed", params={"cell": VIGO})
+    ).status_code == 403
+
+
+async def test_a_cell_that_is_not_a_cell_is_refused(api: AsyncClient, club: dict) -> None:
+    await joined(api, club["id"], cell=VIGO)
+
+    response = await api.get(
+        f"/api/communities/{club['id']}/feed", params={"cell": "not-a-cell"}, headers=as_()
+    )
+
+    assert response.status_code == 400
 
 
 # The shapes the mobile client already reads, field for field.

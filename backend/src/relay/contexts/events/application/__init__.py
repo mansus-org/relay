@@ -2,6 +2,7 @@
 
 from relay.contexts.events.application.cancel_rsvp import CancelRsvp
 from relay.contexts.events.application.create_event import CreateEvent
+from relay.contexts.events.application.get_community_announcements import GetCommunityAnnouncements
 from relay.contexts.events.application.get_community_events import GetCommunityEvents
 from relay.contexts.events.application.get_event import GetEvent
 from relay.contexts.events.application.get_events import GetEvents
@@ -12,6 +13,7 @@ __all__ = [
     "CancelRsvp",
     "CreateEvent",
     "EventsUnitOfWork",
+    "GetCommunityAnnouncements",
     "GetCommunityEvents",
     "GetEvent",
     "GetEvents",

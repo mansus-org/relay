@@ -82,6 +82,19 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
             limit,
         )
 
+    async def recent_for_community(
+        self, *, community_id: UUID, cells: Iterable[str], limit: int
+    ) -> list[Event]:
+        """Newest filed first, same two cuts as the calendar list makes."""
+        wanted = set(cells)
+        found = [
+            event
+            for event in self._items.values()
+            if event.community_id == community_id and event.location_cell in wanted
+        ]
+        found.sort(key=lambda event: (event.created_at, event.id), reverse=True)
+        return found[:limit]
+
     def _page(
         self, belongs: Callable[[Event], bool], start: ListingStart, limit: int
     ) -> list[Event]:

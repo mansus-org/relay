@@ -37,6 +37,19 @@ class EventRepository(Repository[Event, UUID]):
         from it. An event that named no cell is in none of them, so it is on neither list.
         """
 
+    @abstractmethod
+    async def recent_for_community(
+        self, *, community_id: UUID, cells: Iterable[str], limit: int
+    ) -> list[Event]:
+        """The newest things one community filed, whatever time they are for.
+
+        A feed order and not a calendar one: a feed is what a community has lately said,
+        so this is ordered by when a plan was put up and not by when it happens, and one
+        that has already happened stays until something newer pushes it off. The ring is
+        the same rule as on the calendar list, because a plan nobody can walk to is not
+        worth announcing to them either.
+        """
+
 
 class RsvpRepository(Repository[Rsvp, UUID]):
     """Who is going to what."""
