@@ -3,7 +3,7 @@
 The Python (FastAPI) backend of Relay. It replaces the old Go node, and is
 built as a SOLID + Domain-Driven Design skeleton: one package
 per bounded context, with `api`, `application`, `domain` and `infrastructure`
-layers. Today it ships the skeleton, `GET /api/health`, and five contexts.
+layers. Today it ships the skeleton, `GET /api/health`, and six contexts.
 
 - `location`: `GET /api/location/postal-code/{postal_code}` turns a Spanish
   postal code into the locality and H3 cell a feed is read from. Galicia only
@@ -93,9 +93,12 @@ curl -X POST localhost:8000/api/auth/login \
   -H 'content-type: application/json' \
   -d '{"username":"you","password":"at-least-8-characters"}'
 
-# 2. Everyone after that needs an invite. Minting one is still a database job
-#    (an endpoint for it is the next ticket); with SQLite:
-sqlite3 relay.db "insert into invites (token) values ('$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')')"
+# 2. Everyone after that needs an invite, and an admin mints one over the API:
+TOKEN=$(curl -s -X POST localhost:8000/api/auth/login -H 'content-type: application/json' \
+  -d '{"username":"you","password":"at-least-8-characters"}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+curl -s -X POST localhost:8000/api/admin/invites -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{"note":"For Nadia, from the cafe"}'
+# {"id":1,"token":"...","url":"https://relay.mansus.org/join?token=...","state":"open",...}
 curl -X POST localhost:8000/api/auth/register \
   -H 'content-type: application/json' \
   -d '{"invite_token":"<that token>","username":"someone","password":"...","display_name":"Someone"}'
@@ -110,6 +113,48 @@ development default the API refuses to start, because that key is published in
 this repository and anyone could forge a session. On a laptop, say so out loud
 with `ALLOW_INSECURE_SECRET_KEY=1`.
 
+## Admin
+
+The part of Relay that is somebody's job: the moderation queue, the members, and
+the invites. Every route here needs a bearer token from an account with
+`is_admin`, and anything else gets a 403 rather than a hint that the thing exists.
+
+| Endpoint | Takes | Gives you |
+|---|---|---|
+| `GET /api/admin/queue` | `status` (default `pending`), `limit`, `offset` | posts newest-first, each with the newest machine verdict beside it |
+| `GET /api/admin/queue/{id}` | | one post, whatever its state, including what readers no longer see |
+| `POST /api/admin/queue/{id}/approve` | an optional `reason` | the post, up for everyone |
+| `POST /api/admin/queue/{id}/remove` | `reason`, required | the post, down. It stays in the database |
+| `POST /api/admin/queue/{id}/restore` | | the post back, as approved rather than back in the queue |
+| `GET /api/admin/log` | `post_id`, `community_id`, `target_user_id`, `actor_id`, `limit`, `offset` | the trail newest-first: who did it, when, why, and whether they were a person |
+| `GET /api/admin/members` | `search`, `admin`, `deactivated`, `limit`, `offset` | accounts, newest-first |
+| `GET /api/admin/members/{id}` | | one account, with their own trail |
+| `DELETE /api/admin/members/{id}` | `reason` in the query, required | the account off, and every session it had ended |
+| `POST /api/admin/members/{id}/restore` | | the account back on |
+| `GET /api/admin/invites` | `state` (`open`/`used`/`revoked`), `limit`, `offset` | the invites, and who spent one |
+| `POST /api/admin/invites` | an optional `note` | a token, and a `url` ready to send |
+| `DELETE /api/admin/invites/{id}` | | an unused invite, taken back |
+
+Three things worth knowing before you build on it:
+
+- **Deciding twice is a 409, not a second decision.** Two admins on the same card
+  cannot both settle it, and the loser finds that out instead of quietly
+  overwriting the winner. A removal with no `reason` is a 400: whoever asks for the
+  reason is usually the person the thing was done to.
+- **Switching an account off ends its sessions in the same transaction, and
+  deletes nothing else.** Their posts stay up and their username stays taken, which
+  is what makes `restore` able to undo it exactly. Neither your own account nor
+  another admin's can be switched off.
+- **`trigger` on a log entry says `human` or `ai`.** A classifier can flag a post and
+  leave its verdict in `ai_decision`; it cannot decide one. The queue shows the
+  verdict so an admin sees what was already suspected, and the person who settles it
+  is still recorded as a person. Nothing in Relay runs a model yet - the columns and
+  the reads are here so that something can.
+
+Being an admin is still a database job, one column: `update users set is_admin = 1
+where username = 'you'`. The account seeded from `ADMIN_USERNAME` is flagged with it,
+so whoever starts Relay can get here from the first boot.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -119,6 +164,7 @@ with `ALLOW_INSECURE_SECRET_KEY=1`.
 | `ALLOW_INSECURE_SECRET_KEY` | `0` | Start anyway on the development key, and log a warning about it. A laptop only, never a deployment |
 | `ADMIN_USERNAME` | unset | Create this account on startup if the database has no users yet. Needs `ADMIN_PASSWORD` |
 | `ADMIN_PASSWORD` | unset | Password for `ADMIN_USERNAME`, at least 8 characters |
+| `INVITE_BASE_URL` | unset | Where Relay is found, `relay.mansus.org` or `http://localhost:5173`, either way. An invite comes back with a `url` built from it, so nobody pastes a token into a link by hand. Unset means no `url`: the token still works |
 | `VERSION` | `dev` | Reported by `/health` |
 | `LOG_LEVEL` | `INFO` | JSON logs on stdout |
 | `WEB_DIST_DIR` | unset | Exported web build to serve at `/` (SPA fallback to `index.html`). Unset = API only |
