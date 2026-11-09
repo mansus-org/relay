@@ -63,7 +63,9 @@ async def seed(uow: SqlAlchemyEventsUnitOfWork, *events: Event) -> None:
     await uow.commit()
 
 
-async def listing(uow: SqlAlchemyEventsUnitOfWork, cells: list[str], after: datetime = STARTS):
+async def listing(
+    uow: SqlAlchemyEventsUnitOfWork, cells: list[str], after: datetime | None = STARTS
+):
     return await uow.events.page_upcoming(cells=cells, after=after, limit=20)
 
 
@@ -152,6 +154,18 @@ async def test_an_event_that_already_started_is_not_coming_up(
     assert [event.title for event in await listing(uow, [VIGO])] == ["later"]
 
 
+async def test_a_page_with_no_floor_reads_what_already_happened(
+    uow: SqlAlchemyEventsUnitOfWork,
+) -> None:
+    """A reader asking for the past leaves the place as the only filter left."""
+    await seed(uow, planned("last week", hours=-24 * 7), planned("later", hours=1))
+
+    assert [event.title for event in await listing(uow, [VIGO], after=None)] == [
+        "last week",
+        "later",
+    ]
+
+
 async def test_a_page_stops_where_it_was_told_to(uow: SqlAlchemyEventsUnitOfWork) -> None:
     await seed(uow, *[planned(f"event {n}", hours=n) for n in range(5)])
 
@@ -204,6 +218,26 @@ async def test_a_place_can_be_found_by_who_took_it(uow: SqlAlchemyEventsUnitOfWo
         PLANNED,
     )
     assert await uow.rsvps.by_member(event_id=event.id, member_id=uuid4()) is None
+
+
+async def test_a_place_given_back_is_gone_from_the_table(
+    uow: SqlAlchemyEventsUnitOfWork,
+) -> None:
+    """Only the one who gave it back stops being counted; the rest keep their places."""
+    event = planned("Book swap")
+    you, them = uuid4(), uuid4()
+    await seed(uow, event)
+    await uow.rsvps.add(going_to(event, you))
+    await uow.rsvps.add(going_to(event, them))
+    await uow.commit()
+
+    place = await uow.rsvps.by_member(event_id=event.id, member_id=you)
+    assert place is not None
+    await uow.rsvps.delete(place)
+    await uow.commit()
+
+    assert await uow.rsvps.by_member(event_id=event.id, member_id=you) is None
+    assert await uow.rsvps.count_for(event.id) == 1
 
 
 async def test_the_same_member_cannot_take_two_places(migrated_engine: AsyncEngine) -> None:

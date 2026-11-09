@@ -15,13 +15,14 @@ class EventRepository(Repository[Event, UUID]):
 
     @abstractmethod
     async def page_upcoming(
-        self, *, cells: Iterable[str], after: datetime, limit: int
+        self, *, cells: Iterable[str], after: datetime | None, limit: int
     ) -> list[Event]:
         """Soonest first: events in one of `cells` starting later than `after`.
 
         An event with no `location_cell` is in none of the cells, so it never comes
-        back. An event that has already started is not here either: this is what is
-        still to come.
+        back. With `after` set, an event that has already started is not here either:
+        this is what is still to come. With `after` None nothing is too late, which is
+        what a reader asking for the past is asking for.
         """
 
 
@@ -31,6 +32,10 @@ class RsvpRepository(Repository[Rsvp, UUID]):
     @abstractmethod
     async def by_member(self, *, event_id: UUID, member_id: UUID) -> Rsvp | None:
         """This member's place at this event, if they have taken one."""
+
+    @abstractmethod
+    async def delete(self, rsvp: Rsvp) -> None:
+        """Give up a place. The caller has already found it."""
 
     @abstractmethod
     async def count_for(self, event_id: UUID) -> int:

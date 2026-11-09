@@ -8,14 +8,27 @@ from relay.contexts.events.domain.listing import EventDetails
 
 
 class GetEvent:
-    """Fetches one event with the tally of who is going."""
+    """Fetches one event with the tally of who is going.
+
+    Reading an event is public; knowing whether *you* are going is not, so `member_id`
+    is there when the caller has one and the answer is false when they do not.
+    """
 
     def __init__(self, uow: EventsUnitOfWork) -> None:
         self._uow = uow
 
-    async def execute(self, event_id: UUID) -> EventDetails:
+    async def execute(self, event_id: UUID, member_id: UUID | None = None) -> EventDetails:
         async with self._uow:
             event = await self._uow.events.get(event_id)
             if event is None:
                 raise EventNotFoundError(f"No event {event_id} to show.")
-            return EventDetails(event=event, rsvp_count=await self._uow.rsvps.count_for(event_id))
+            going = (
+                await self._uow.rsvps.by_member(event_id=event_id, member_id=member_id)
+                if member_id is not None
+                else None
+            )
+            return EventDetails(
+                event=event,
+                rsvp_count=await self._uow.rsvps.count_for(event_id),
+                user_rsvped=going is not None,
+            )

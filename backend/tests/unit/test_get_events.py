@@ -22,9 +22,9 @@ def planned(*titles: str, cell: str | None = "here", from_: int = 1) -> list[Eve
     ]
 
 
-async def read(uow: FakeEventsUnitOfWork, after: str | None = None):
+async def read(uow: FakeEventsUnitOfWork, from_: str | None = None):
     return await GetEvents(uow=uow, neighbourhood=NEIGHBOURHOOD, clock=FixedClock(NOW)).execute(
-        cell="here", radius_km=10, after=after
+        cell="here", radius_km=10, from_=from_
     )
 
 
@@ -101,7 +101,7 @@ async def test_a_page_is_a_page_and_not_the_whole_calendar() -> None:
     page = await read(uow)
 
     assert len(page.events) == 20
-    assert page.next_after == NOW + timedelta(hours=20)
+    assert page.next_from == NOW + timedelta(hours=20)
 
 
 async def test_the_last_page_promises_no_more() -> None:
@@ -109,7 +109,7 @@ async def test_the_last_page_promises_no_more() -> None:
 
     page = await read(uow)
 
-    assert page.next_after is None
+    assert page.next_from is None
 
 
 async def test_walking_the_pages_sees_every_event_once() -> None:
@@ -121,28 +121,28 @@ async def test_walking_the_pages_sees_every_event_once() -> None:
     )
 
     first = await read(uow)
-    second = await read(uow, after=str(first.next_after))
+    second = await read(uow, from_=str(first.next_from))
 
     seen = [details.event.title for details in first.events + second.events]
     assert len(seen) == 25
     assert len(set(seen)) == 25
-    assert second.next_after is None
+    assert second.next_from is None
 
 
-async def test_the_page_starts_after_the_instant_it_was_given() -> None:
+async def test_the_page_starts_at_the_instant_it_was_asked_for() -> None:
     uow = FakeEventsUnitOfWork(planned("one", "two", "three"))
 
-    page = await read(uow, after=str(NOW + timedelta(hours=1)))
+    page = await read(uow, from_=str(NOW + timedelta(hours=1)))
 
     assert [details.event.title for details in page.events] == ["two", "three"]
 
 
-async def test_the_page_starts_at_the_same_instant_when_the_time_comes_in_another_zone() -> None:
-    """A page marker is an instant, not a wall-clock reading."""
+async def test_the_page_starts_at_the_same_instant_when_the_date_comes_in_another_zone() -> None:
+    """`from` is an instant, not a wall-clock reading, whichever way it was written."""
     uow = FakeEventsUnitOfWork(planned("one", "two", "three"))
 
     in_tokyo = (NOW + timedelta(hours=1)).astimezone(TOKYO).isoformat()
-    page = await read(uow, after=in_tokyo)
+    page = await read(uow, from_=in_tokyo)
 
     assert [details.event.title for details in page.events] == ["two", "three"]
 
@@ -159,3 +159,31 @@ async def test_a_page_that_names_no_start_reads_from_now() -> None:
     page = await read(uow)
 
     assert [details.event.title for details in page.events] == ["tonight"]
+
+
+async def test_a_page_asked_for_the_past_reads_the_past() -> None:
+    """`from=past` is the only way to ask, because the default refuses to look back."""
+    uow = FakeEventsUnitOfWork(
+        [
+            an_event("last week", starts_at=NOW - timedelta(days=7)),
+            an_event("tonight", starts_at=NOW + timedelta(hours=6)),
+        ]
+    )
+
+    page = await read(uow, from_="past")
+
+    assert [details.event.title for details in page.events] == ["last week", "tonight"]
+
+
+async def test_a_date_without_a_time_is_that_midnight() -> None:
+    """A person typing a date means the day, and the day starts at midnight."""
+    uow = FakeEventsUnitOfWork(
+        [
+            an_event("the night before", starts_at=datetime(2026, 3, 3, 23, tzinfo=UTC)),
+            an_event("the morning of", starts_at=datetime(2026, 3, 4, 0, 30, tzinfo=UTC)),
+        ]
+    )
+
+    page = await read(uow, from_="2026-03-04")
+
+    assert [details.event.title for details in page.events] == ["the morning of"]

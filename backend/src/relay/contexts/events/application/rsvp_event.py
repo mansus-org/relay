@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from relay.contexts.events.application.unit_of_work import EventsUnitOfWork
-from relay.contexts.events.domain.event import Event, EventNotFoundError
+from relay.contexts.events.domain.event import EventNotFoundError
 from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp, RsvpOutcome
 from relay.shared.application import Clock
 
@@ -11,9 +11,8 @@ from relay.shared.application import Clock
 class RsvpEvent:
     """Takes a member's place at an event.
 
-    Saying it twice says it once: the second call changes nothing and is not an error,
-    because the thing a person is doing when they tap a "going" button a second time
-    is checking, not disagreeing with themselves.
+    One place per person, so a second tap is a conflict and not a quiet success: the
+    count a client reads afterwards is the count this call produced, either way.
     """
 
     def __init__(self, uow: EventsUnitOfWork, clock: Clock) -> None:
@@ -26,20 +25,10 @@ class RsvpEvent:
             if event is None:
                 raise EventNotFoundError(f"No event {event_id} to go to.")
             if await self._uow.rsvps.by_member(event_id=event_id, member_id=member_id) is not None:
-                return await self._outcome(event, was_new=False)
-            try:
-                await self._uow.rsvps.add(
-                    Rsvp.go(event_id=event_id, member_id=member_id, at=self._clock.now())
-                )
-                await self._uow.commit()
-            except AlreadyRsvpedError:
-                # Two taps at once: the unique index let one of them through, and the
-                # other is the same place taken, not a second one.
-                await self._uow.rollback()
-                return await self._outcome(event, was_new=False)
-            return await self._outcome(event, was_new=True)
-
-    async def _outcome(self, event: Event, *, was_new: bool) -> RsvpOutcome:
-        return RsvpOutcome(
-            event=event, rsvp_count=await self._uow.rsvps.count_for(event.id), was_new=was_new
-        )
+                raise AlreadyRsvpedError(f"You are already going to event {event_id}.")
+            await self._uow.rsvps.add(
+                Rsvp.go(event_id=event_id, member_id=member_id, at=self._clock.now())
+            )
+            await self._uow.commit()
+            # Counted after the commit: this is the tally the caller just moved.
+            return RsvpOutcome(event=event, rsvp_count=await self._uow.rsvps.count_for(event.id))

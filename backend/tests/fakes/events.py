@@ -55,13 +55,13 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
             self._items[event.id] = event
 
     async def page_upcoming(
-        self, *, cells: Iterable[str], after: datetime, limit: int
+        self, *, cells: Iterable[str], after: datetime | None, limit: int
     ) -> list[Event]:
         wanted = set(cells)
         upcoming = [
             event
             for event in self._items.values()
-            if event.location_cell in wanted and event.starts_at > after
+            if event.location_cell in wanted and (after is None or event.starts_at > after)
         ]
         upcoming.sort(key=lambda event: event.starts_at)
         return upcoming[:limit]
@@ -91,6 +91,9 @@ class InMemoryRsvpRepository(InMemoryRepository[Rsvp], RsvpRepository):
             ),
             None,
         )
+
+    async def delete(self, rsvp: Rsvp) -> None:
+        self._items.pop(rsvp.id, None)
 
     async def count_for(self, event_id: UUID) -> int:
         return sum(1 for rsvp in self._items.values() if rsvp.event_id == event_id)

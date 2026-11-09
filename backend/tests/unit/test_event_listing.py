@@ -25,11 +25,16 @@ def test_a_page_marker_survives_the_query_string_it_is_sent_in() -> None:
     """Why a `Z` and not a `+00:00`: a `+` in a query string is a space by the time it lands."""
     marker = as_text(STARTS) or ""
 
-    assert parse_qs(urlencode({"next_after": marker}))["next_after"][0] == marker
+    assert parse_qs(urlencode({"from": marker}))["from"][0] == marker
 
 
 def test_an_event_on_its_own_carries_no_tally_until_someone_says_they_are_going() -> None:
     assert EventDetails(event=an_event()).rsvp_count == 0
+
+
+def test_a_reader_who_did_not_say_who_they_are_is_not_going() -> None:
+    """`user_rsvped` is a per-reader answer, and a list has no one reader to answer for."""
+    assert EventDetails(event=an_event()).user_rsvped is False
 
 
 def test_a_page_holds_its_events_in_the_order_it_was_given_them() -> None:
@@ -39,7 +44,7 @@ def test_a_page_holds_its_events_in_the_order_it_was_given_them() -> None:
     page = EventListingPage(events=(EventDetails(event=sooner), EventDetails(event=later)))
 
     assert [details.event.title for details in page.events] == ["Sooner", "Later"]
-    assert page.next_after is None
+    assert page.next_from is None
 
 
 def test_a_page_and_its_tallies_survive_being_read_back_as_a_value() -> None:
@@ -47,10 +52,10 @@ def test_a_page_and_its_tallies_survive_being_read_back_as_a_value() -> None:
     event = an_event()
     page = EventListingPage(
         events=(EventDetails(event=event, rsvp_count=3),),
-        next_after=STARTS,
+        next_from=STARTS,
     )
 
     assert page == EventListingPage(
-        events=(EventDetails(event=event, rsvp_count=3),), next_after=STARTS
+        events=(EventDetails(event=event, rsvp_count=3),), next_from=STARTS
     )
     assert EventListingPage(events=(EventDetails(event=event),)) != page

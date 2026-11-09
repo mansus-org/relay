@@ -11,17 +11,21 @@ class EventDetails(ValueObject):
 
     The count travels with the event because everywhere that shows an event shows the
     tally beside it, and letting each of those ask separately is one query per event.
+
+    `user_rsvped` is the answer to a different question — is *this reader* going — so
+    only the read of one event fills it in. The list is public and leaves it false.
     """
 
     event: Event
     rsvp_count: int = 0
+    user_rsvped: bool = False
 
 
 class EventListingPage(ValueObject):
     """Soonest first, and the instant the next page starts after."""
 
     events: tuple[EventDetails, ...]
-    next_after: datetime | None = None
+    next_from: datetime | None = None
 
 
 def as_text(value: datetime | None) -> str | None:

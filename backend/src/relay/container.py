@@ -13,6 +13,7 @@ from relay.contexts.communities.infrastructure import (
     SqlAlchemyCommunitiesUnitOfWork,
 )
 from relay.contexts.events.application import (
+    CancelRsvp,
     CreateEvent,
     EventsUnitOfWork,
     GetEvent,
@@ -141,3 +142,6 @@ class Container:
 
     def get_rsvp_event(self) -> RsvpEvent:
         return RsvpEvent(uow=self.events_unit_of_work(), clock=self.clock)
+
+    def get_cancel_rsvp(self) -> CancelRsvp:
+        return CancelRsvp(uow=self.events_unit_of_work())

@@ -4,11 +4,15 @@ from datetime import datetime
 from uuid import UUID
 
 from relay.contexts.events.domain.event import Event
-from relay.shared.domain import ConflictError, Entity, ValueObject
+from relay.shared.domain import ConflictError, Entity, NotFoundError, ValueObject
 
 
 class AlreadyRsvpedError(ConflictError):
     """This member is already going, so there is no second place to take."""
+
+
+class NotGoingError(NotFoundError):
+    """There is no place of this member's at this event to give back."""
 
 
 class Rsvp(Entity):
@@ -29,12 +33,11 @@ class Rsvp(Entity):
 
 
 class RsvpOutcome(ValueObject):
-    """What saying you are going came to.
+    """What saying you are going came to: the event, and the tally after you.
 
-    `was_new` is the difference between a first tap and a fourth one on the same
-    button: both leave you going, and only the first added anything.
+    A second tap is a 409 rather than a quiet success, so nothing here has to say
+    whether this call was the one that took the place.
     """
 
     event: Event
     rsvp_count: int
-    was_new: bool

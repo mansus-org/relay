@@ -1,4 +1,4 @@
-"""Saying you are going: one place taken, or the race that took it a moment earlier."""
+"""Saying you are going: one place taken, or the second hand that cannot take another."""
 
 from uuid import UUID, uuid4
 
@@ -50,23 +50,22 @@ async def test_a_place_is_taken_and_written_down() -> None:
     assert uow.committed is True
     assert outcome.event is event
     assert outcome.rsvp_count == 1
-    assert outcome.was_new is True
     taken = await uow.rsvps.by_member(event_id=event.id, member_id=member)
     assert taken is not None
     assert taken.created_at == NOW
 
 
-async def test_saying_it_twice_takes_one_place_and_is_not_an_error() -> None:
-    """The second tap is checking, not disagreeing with yourself."""
+async def test_a_second_hand_is_a_conflict_and_takes_no_second_place() -> None:
+    """One place per person, so the second tap is refused out loud rather than ignored."""
     event = an_event()
     member = uuid4()
     uow = FakeEventsUnitOfWork([event], [going_to(event, member)])
 
-    outcome = await saying(uow).execute(event_id=event.id, member_id=member)
+    with pytest.raises(AlreadyRsvpedError):
+        await saying(uow).execute(event_id=event.id, member_id=member)
 
-    assert outcome.was_new is False
-    assert outcome.rsvp_count == 1
     assert uow.committed is False
+    assert await uow.rsvps.count_for(event.id) == 1
 
 
 async def test_everyone_who_said_it_is_counted() -> None:
@@ -76,7 +75,6 @@ async def test_everyone_who_said_it_is_counted() -> None:
     outcome = await saying(uow).execute(event_id=event.id, member_id=uuid4())
 
     assert outcome.rsvp_count == 3
-    assert outcome.was_new is True
 
 
 async def test_there_is_nothing_to_go_to_that_was_never_planned() -> None:
@@ -88,15 +86,15 @@ async def test_there_is_nothing_to_go_to_that_was_never_planned() -> None:
     assert uow.committed is False
 
 
-async def test_two_taps_at_once_take_one_place() -> None:
-    """The unique index decides between them, and losing that race is not an error."""
+async def test_two_taps_at_once_take_one_place_and_only_one_succeeds() -> None:
+    """The unique index decides between them, and losing is a conflict like any other."""
     event = an_event()
     member = uuid4()
     uow = FakeEventsUnitOfWork([event])
     uow.rsvps = RaceLost(event, member)
 
-    outcome = await saying(uow).execute(event_id=event.id, member_id=member)
+    with pytest.raises(AlreadyRsvpedError):
+        await saying(uow).execute(event_id=event.id, member_id=member)
 
-    assert outcome.was_new is False
-    assert outcome.rsvp_count == 1
     assert uow.rolled_back is True
+    assert await uow.rsvps.count_for(event.id) == 1

@@ -4,7 +4,7 @@ from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,20 +14,18 @@ from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp
 from relay.contexts.events.infrastructure.models import EventModel, RsvpModel
 
 
-def upcoming_statement(cells: list[str], after: datetime, limit: int) -> Select:
+def upcoming_statement(cells: list[str], after: datetime | None, limit: int) -> Select:
     """One page of what is on, soonest first.
 
     `IN` leaves out the events that named no locality at all, which is what keeps them
-    out of every locality's list. Built here rather than inline so the query the
-    repository runs is the query a test can put under EXPLAIN.
+    out of every locality's list. With `after` None the page has no floor and the past
+    is on it. Built here rather than inline so the query the repository runs is the
+    query a test can put under EXPLAIN.
     """
-    return (
-        select(EventModel)
-        .where(EventModel.location_cell.in_(cells))
-        .where(EventModel.starts_at > after.astimezone(UTC))
-        .order_by(EventModel.starts_at.asc())
-        .limit(limit)
-    )
+    statement = select(EventModel).where(EventModel.location_cell.in_(cells))
+    if after is not None:
+        statement = statement.where(EventModel.starts_at > after.astimezone(UTC))
+    return statement.order_by(EventModel.starts_at.asc()).limit(limit)
 
 
 class SqlAlchemyEventRepository(EventRepository):
@@ -44,7 +42,7 @@ class SqlAlchemyEventRepository(EventRepository):
         self._session.add(EventModel.from_domain(entity))
 
     async def page_upcoming(
-        self, *, cells: Iterable[str], after: datetime, limit: int
+        self, *, cells: Iterable[str], after: datetime | None, limit: int
     ) -> list[Event]:
         statement = upcoming_statement(list(cells), after, limit)
         rows = (await self._session.execute(statement)).scalars()
@@ -85,6 +83,14 @@ class SqlAlchemyRsvpRepository(RsvpRepository):
             )
         ).scalar_one_or_none()
         return row.to_domain() if row is not None else None
+
+    async def delete(self, rsvp: Rsvp) -> None:
+        """Gives the place back. The row is this session's or the delete is a no-op."""
+        await self._session.execute(
+            delete(RsvpModel).where(
+                RsvpModel.event_id == rsvp.event_id, RsvpModel.member_id == rsvp.member_id
+            )
+        )
 
     async def count_for(self, event_id: UUID) -> int:
         return (

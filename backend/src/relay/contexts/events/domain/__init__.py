@@ -27,7 +27,12 @@ from relay.contexts.events.domain.ports import (
     EventRepository,
     RsvpRepository,
 )
-from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp, RsvpOutcome
+from relay.contexts.events.domain.rsvp import (
+    AlreadyRsvpedError,
+    NotGoingError,
+    Rsvp,
+    RsvpOutcome,
+)
 
 __all__ = [
     "CELL_RESOLUTION",
@@ -46,6 +51,7 @@ __all__ = [
     "EventRepository",
     "InvalidRadiusError",
     "InvalidTimeError",
+    "NotGoingError",
     "Rsvp",
     "RsvpOutcome",
     "RsvpRepository",

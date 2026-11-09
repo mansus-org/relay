@@ -1,4 +1,4 @@
-"""The four endpoints a person uses to plan something, find it, and say they are coming."""
+"""The endpoints a person uses to plan something, find it, and say they are coming."""
 
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta, timezone
@@ -275,16 +275,16 @@ async def test_the_list_pages_and_tells_you_where_the_next_page_starts(api: Asyn
 
     first = (await api.get("/api/events", params={"cell": VIGO})).json()
     assert len(first["events"]) == 20
-    assert first["next_after"] is not None
+    assert first["next_from"] is not None
     # A `+` in a query string arrives as a space, which is no longer a timestamp.
-    assert "+" not in first["next_after"]
+    assert "+" not in first["next_from"]
 
     second = (
-        await api.get("/api/events", params={"cell": VIGO, "after": first["next_after"]})
+        await api.get("/api/events", params={"cell": VIGO, "from": first["next_from"]})
     ).json()
 
     assert [event["title"] for event in second["events"]] == [f"event {n}" for n in range(20, 25)]
-    assert second["next_after"] is None
+    assert second["next_from"] is None
     seen = [event["id"] for event in first["events"] + second["events"]]
     assert len(set(seen)) == 25
 
@@ -292,14 +292,24 @@ async def test_the_list_pages_and_tells_you_where_the_next_page_starts(api: Asyn
 async def test_a_page_asked_for_from_another_zone_starts_at_the_same_instant(
     api: AsyncClient,
 ) -> None:
-    """A page marker is an instant, not a reading of one wall clock."""
+    """`from` is an instant, not a reading of one wall clock."""
     for index in range(3):
         await plan(api, f"event {index}", starts_at=at(index + 1), location_cell=VIGO)
 
     in_tokyo = (NOW + timedelta(hours=1)).astimezone(TOKYO).isoformat()
-    response = await api.get("/api/events", params={"cell": VIGO, "after": in_tokyo})
+    response = await api.get("/api/events", params={"cell": VIGO, "from": in_tokyo})
 
     assert [event["title"] for event in response.json()["events"]] == ["event 1", "event 2"]
+
+
+async def test_a_date_without_a_time_reads_that_day(api: AsyncClient) -> None:
+    """Someone typing `2030-05-11` means the day, so the day starts at its midnight."""
+    await plan(api, "the night before", starts_at="2030-05-10T23:00:00Z", location_cell=VIGO)
+    await plan(api, "the morning of", starts_at="2030-05-11T00:30:00Z", location_cell=VIGO)
+
+    response = await api.get("/api/events", params={"cell": VIGO, "from": "2030-05-11"})
+
+    assert [event["title"] for event in response.json()["events"]] == ["the morning of"]
 
 
 async def test_the_list_needs_a_cell(api: AsyncClient) -> None:
@@ -325,14 +335,26 @@ async def test_the_list_refuses_a_radius_that_would_read_too_far(
     ).status_code == 400
 
 
-@pytest.mark.parametrize("after", ["", "yesterday", "2030-13-01"])
-async def test_a_page_marker_this_list_never_handed_out_is_refused(
-    api: AsyncClient, after: str
-) -> None:
-    """A client that clears its marker may still send the parameter, and that is not a time."""
-    response = await api.get("/api/events", params={"cell": VIGO, "after": after})
+@pytest.mark.parametrize("from_", ["", "yesterday", "2030-13-01", "1700000000"])
+async def test_a_start_this_list_never_handed_out_is_refused(api: AsyncClient, from_: str) -> None:
+    """A client that clears its marker may still send the parameter, and that is not a date."""
+    response = await api.get("/api/events", params={"cell": VIGO, "from": from_})
 
     assert response.status_code == 400
+
+
+async def test_the_events_that_already_happened_are_behind_a_word_for_them(
+    api: AsyncClient,
+) -> None:
+    """The default page is what has not started; `from=past` is how you ask for the rest."""
+    await plan(api, "last week", starts_at=at(-24 * 7), location_cell=VIGO)
+    await plan(api, "tomorrow", starts_at=at(24), location_cell=VIGO)
+
+    assert [event["title"] for event in (await on(api))["events"]] == ["tomorrow"]
+
+    past = await api.get("/api/events", params={"cell": VIGO, "from": "past"})
+
+    assert [event["title"] for event in past.json()["events"]] == ["last week", "tomorrow"]
 
 
 # Reading one event.
@@ -344,7 +366,34 @@ async def test_an_event_can_be_read_on_its_own(api: AsyncClient) -> None:
     response = await api.get(f"/api/events/{created['id']}")
 
     assert response.status_code == 200
-    assert response.json() == created
+    assert response.json() == created | {"user_rsvped": False}
+
+
+async def test_reading_an_event_says_whether_you_are_in_that_number(api: AsyncClient) -> None:
+    """The count is for everyone; whose hand is in it is only ever said to the one asking."""
+    event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
+    going = uuid4()
+    await api.post(f"/api/events/{event['id']}/rsvp", headers=as_(going))
+
+    assert (await api.get(f"/api/events/{event['id']}", headers=as_(going))).json()[
+        "user_rsvped"
+    ] is True
+    assert (await api.get(f"/api/events/{event['id']}", headers=as_(uuid4()))).json()[
+        "user_rsvped"
+    ] is False
+
+
+async def test_reading_an_event_without_a_token_says_nothing_about_a_reader(
+    api: AsyncClient,
+) -> None:
+    """The list is public, and so is the event behind it: no token, no `user_rsvped`."""
+    event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
+    await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
+
+    anonymous = (await api.get(f"/api/events/{event['id']}")).json()
+
+    assert anonymous["rsvp_count"] == 1
+    assert anonymous["user_rsvped"] is False
 
 
 async def test_an_event_that_was_never_planned_is_not_there(api: AsyncClient) -> None:
@@ -364,17 +413,19 @@ async def test_saying_you_are_going_counts_you(api: AsyncClient) -> None:
     response = await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
 
     assert response.status_code == 200
-    assert response.json() == {"event_id": event["id"], "rsvp_count": 1, "was_new": True}
+    assert response.json() == {"event_id": event["id"], "rsvp_count": 1}
 
 
-async def test_saying_it_twice_takes_one_place(api: AsyncClient) -> None:
-    """The second tap is checking, not disagreeing with yourself, so it is not an error."""
+async def test_saying_it_twice_is_refused_and_takes_no_second_place(api: AsyncClient) -> None:
+    """One place per person, so the second tap is a conflict, not a silent second row."""
     event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
     await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
 
     again = await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
 
-    assert again.json() == {"event_id": event["id"], "rsvp_count": 1, "was_new": False}
+    assert again.status_code == 409
+    assert "already" in again.json()["detail"]
+    assert (await api.get(f"/api/events/{event['id']}")).json()["rsvp_count"] == 1
 
 
 async def test_two_people_going_are_two_people_going(api: AsyncClient) -> None:
@@ -402,6 +453,54 @@ async def test_saying_you_are_going_needs_someone_to_say_it_as(
 
 async def test_you_cannot_go_to_an_event_that_was_never_planned(api: AsyncClient) -> None:
     assert (await api.post(f"/api/events/{uuid4()}/rsvp", headers=as_())).status_code == 404
+
+
+# Giving the place back.
+
+
+async def test_giving_your_place_back_takes_you_out_of_the_number(api: AsyncClient) -> None:
+    event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
+    await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
+
+    response = await api.delete(f"/api/events/{event['id']}/rsvp", headers=as_())
+
+    assert response.status_code == 204
+    assert response.text == ""
+    assert (await api.get(f"/api/events/{event['id']}")).json()["rsvp_count"] == 0
+
+
+async def test_giving_your_place_back_leaves_everyone_else_going(api: AsyncClient) -> None:
+    event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
+    you = uuid4()
+    await api.post(f"/api/events/{event['id']}/rsvp", headers=as_(you))
+    await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
+
+    await api.delete(f"/api/events/{event['id']}/rsvp", headers=as_(you))
+
+    assert (await api.get(f"/api/events/{event['id']}")).json()["rsvp_count"] == 1
+
+
+async def test_giving_back_a_place_you_never_took_is_not_there(api: AsyncClient) -> None:
+    """Nothing to give back is the same answer whichever way there was nothing: no event."""
+    event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
+
+    assert (
+        await api.delete(f"/api/events/{event['id']}/rsvp", headers=as_(uuid4()))
+    ).status_code == 404
+
+
+async def test_giving_back_a_place_twice_undoes_it_once(api: AsyncClient) -> None:
+    event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
+    await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
+    await api.delete(f"/api/events/{event['id']}/rsvp", headers=as_())
+
+    assert (await api.delete(f"/api/events/{event['id']}/rsvp", headers=as_())).status_code == 404
+
+
+async def test_giving_a_place_back_needs_someone_to_give_it_as(api: AsyncClient) -> None:
+    event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
+
+    assert (await api.delete(f"/api/events/{event['id']}/rsvp", headers={})).status_code == 401
 
 
 async def test_every_endpoint_is_in_the_openapi_document(api: AsyncClient) -> None:
