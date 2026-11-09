@@ -26,6 +26,8 @@ healthCheck:
 # sealed values, the preview cannot start and merging this takes relay.mansus.org down: no
 # SECRET_KEY, so the guard fires. How-to: k3s-hetzner-gitops docs/app-platform/new-app.md #6.
 #
+# To fill both at once, with kubectl on the k3s cluster: .k3s/seal-secret-key.sh
+#
 # Production, sealed for the "relay" namespace:
 #   kubectl create secret generic relay-secrets -n relay \
 #     --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
