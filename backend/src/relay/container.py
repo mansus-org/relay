@@ -1,5 +1,17 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from relay.contexts.communities.application import (
+    CommunitiesUnitOfWork,
+    CreateCommunity,
+    GetCommunity,
+    GetCommunityFeed,
+    JoinCommunity,
+    ListCommunities,
+)
+from relay.contexts.communities.infrastructure import (
+    H3CommunityReach,
+    SqlAlchemyCommunitiesUnitOfWork,
+)
 from relay.contexts.location.application import ResolvePostalCode
 from relay.contexts.location.infrastructure import DatasetPostalCodeDirectory, H3CellEncoder
 from relay.contexts.posts.application import CreatePost, GetFeed, GetPost, PostsUnitOfWork
@@ -29,6 +41,7 @@ class Container:
         postal_codes: DatasetPostalCodeDirectory | None = None,
         neighbourhood: H3CellNeighbourhood | None = None,
         cells: H3CellStandard | None = None,
+        reach: H3CommunityReach | None = None,
     ) -> None:
         self.settings = settings
         self.session_factory = session_factory
@@ -39,12 +52,17 @@ class Container:
         self.neighbourhood = neighbourhood or H3CellNeighbourhood()
         # What counts as a cell at all, so nothing is filed where no feed will look.
         self.cells = cells or H3CellStandard()
+        # Whether one community's radius reaches a given cell. Same cut again.
+        self.reach = reach or H3CommunityReach()
 
     def unit_of_work(self) -> UnitOfWork:
         return SqlAlchemyUnitOfWork(self.session_factory)
 
     def posts_unit_of_work(self) -> PostsUnitOfWork:
         return SqlAlchemyPostsUnitOfWork(self.session_factory)
+
+    def communities_unit_of_work(self) -> CommunitiesUnitOfWork:
+        return SqlAlchemyCommunitiesUnitOfWork(self.session_factory)
 
     def get_health(self) -> GetHealth:
         return GetHealth(version=self.settings.version)
@@ -60,3 +78,27 @@ class Container:
 
     def get_post(self) -> GetPost:
         return GetPost(uow=self.posts_unit_of_work())
+
+    def get_create_community(self) -> CreateCommunity:
+        return CreateCommunity(
+            uow=self.communities_unit_of_work(), clock=self.clock, cells=self.cells
+        )
+
+    def get_list_communities(self) -> ListCommunities:
+        return ListCommunities(
+            uow=self.communities_unit_of_work(), cells=self.cells, reach=self.reach
+        )
+
+    def get_community(self) -> GetCommunity:
+        return GetCommunity(uow=self.communities_unit_of_work())
+
+    def get_community_feed(self) -> GetCommunityFeed:
+        return GetCommunityFeed(uow=self.communities_unit_of_work())
+
+    def get_join_community(self) -> JoinCommunity:
+        return JoinCommunity(
+            uow=self.communities_unit_of_work(),
+            clock=self.clock,
+            cells=self.cells,
+            reach=self.reach,
+        )
