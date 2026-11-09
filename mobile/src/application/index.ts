@@ -1,5 +1,12 @@
 import type { SessionEvents } from '../domain'
 import type { makeCreateCommunity, makeJoinCommunity, makeLoadCommunity, makeLoadCommunityFeed, makeLoadNearbyCommunities } from './communities'
+import type {
+  makeCancelRsvp,
+  makeCreateEvent,
+  makeLoadEvent,
+  makeLoadNearbyEvents,
+  makeRsvpToEvent,
+} from './events'
 import type { makeCreatePost, makeListJoinedCommunities } from './compose'
 import type { makeLoadFeed } from './feed'
 import type { makeCellPlaceName, makeResolveLocation } from './resolve-location'
@@ -20,6 +27,14 @@ export {
   type JoinCommunityInput,
 } from './communities'
 export { makeCreatePost, makeListJoinedCommunities, type CreatePostInput } from './compose'
+export {
+  makeCancelRsvp,
+  makeCreateEvent,
+  makeLoadEvent,
+  makeLoadNearbyEvents,
+  makeRsvpToEvent,
+  type DetailedEvent,
+} from './events'
 export { makeLoadFeed } from './feed'
 export { makeCellPlaceName, makeResolveLocation, type LocationError, type ResolvedLocation } from './resolve-location'
 export { makeReadPostalCode, makeResolvePostalCode } from './resolve-postal-code'
@@ -51,5 +66,10 @@ export type UseCases = {
   readonly loadCommunityFeed: ReturnType<typeof makeLoadCommunityFeed>
   readonly joinCommunity: ReturnType<typeof makeJoinCommunity>
   readonly createCommunity: ReturnType<typeof makeCreateCommunity>
+  readonly loadNearbyEvents: ReturnType<typeof makeLoadNearbyEvents>
+  readonly loadEvent: ReturnType<typeof makeLoadEvent>
+  readonly rsvpToEvent: ReturnType<typeof makeRsvpToEvent>
+  readonly cancelRsvp: ReturnType<typeof makeCancelRsvp>
+  readonly createEvent: ReturnType<typeof makeCreateEvent>
   readonly sessionEvents: SessionEvents
 }

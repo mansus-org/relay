@@ -17,3 +17,8 @@ export const communityJoinPath = (id: string) => `${communityPath(id)}/join`
 
 // Location. Served by the backend (RELY-109).
 export const postalCodePath = (code: string) => `/location/postal-code/${encodeURIComponent(code)}`
+
+// Events. Served by the backend (RELY-92): reads are public, the three writes need a bearer token.
+export const EVENTS_PATH = '/events'
+export const eventPath = (id: string) => `${EVENTS_PATH}/${encodeURIComponent(id)}`
+export const eventRsvpPath = (id: string) => `${eventPath(id)}/rsvp`

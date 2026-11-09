@@ -10,6 +10,11 @@ import {
   makeLoadCommunityFeed,
   makeLoadFeed,
   makeLoadNearbyCommunities,
+  makeCancelRsvp,
+  makeCreateEvent,
+  makeLoadEvent,
+  makeLoadNearbyEvents,
+  makeRsvpToEvent,
   makeLogin,
   makeLogout,
   makeReadPostalCode,
@@ -25,6 +30,7 @@ import type { LocationProvider, PlaceNamer } from '../domain'
 import { makeHttpAuthRepository } from '../infrastructure/http/auth-repository'
 import { makeHttpClient } from '../infrastructure/http/client'
 import { makeHttpCommunityRepository } from '../infrastructure/http/community-repository'
+import { makeHttpEventRepository } from '../infrastructure/http/event-repository'
 import { makeHttpFeedRepository, makeHttpPostRepository } from '../infrastructure/http/feed-repository'
 import { makeHttpPostalCodeResolver } from '../infrastructure/http/postal-code-repository'
 import { makeExpoLocationProvider, makeExpoPlaceNamer } from '../infrastructure/location/expo-location'
@@ -90,6 +96,7 @@ export function wireUseCases({
   const cellEncoder = makeH3CellEncoder()
   const postalCodeStore = makePostalCodeStore({ storage: preferenceStorage })
   const communityRepository = makeHttpCommunityRepository({ http })
+  const eventRepository = makeHttpEventRepository({ http })
   const postStream = makeFetchPostStream({ fetch: streamFetch ?? (globalThis.fetch as unknown as StreamFetch), getBaseUrl, getAccessToken })
 
   return {
@@ -110,6 +117,11 @@ export function wireUseCases({
     loadCommunityFeed: makeLoadCommunityFeed({ communityRepository }),
     joinCommunity: makeJoinCommunity({ communityRepository }),
     createCommunity: makeCreateCommunity({ communityRepository }),
+    loadNearbyEvents: makeLoadNearbyEvents({ eventRepository, cellEncoder }),
+    loadEvent: makeLoadEvent({ eventRepository, cellEncoder }),
+    rsvpToEvent: makeRsvpToEvent({ eventRepository, cellEncoder }),
+    cancelRsvp: makeCancelRsvp({ eventRepository, cellEncoder }),
+    createEvent: makeCreateEvent({ eventRepository, cellEncoder }),
     sessionEvents,
   }
 }
