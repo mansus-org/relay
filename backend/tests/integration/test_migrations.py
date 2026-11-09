@@ -1,8 +1,21 @@
+from pathlib import Path
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from relay.shared.infrastructure.database import create_session_factory
 from relay.shared.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
+
+
+def test_the_migrations_are_one_line_and_not_a_fork() -> None:
+    """Twice now two branches have each landed a migration on the same parent, and
+    alembic only says so when the second one merges. It is cheaper to say it here.
+    """
+    ini = Path(__file__).parents[2] / "alembic.ini"
+    heads = ScriptDirectory.from_config(Config(str(ini))).get_heads()
+    assert len(heads) == 1, f"the migration chain has forked: {heads}"
 
 
 async def test_upgrade_head_records_revision(migrated_engine: AsyncEngine) -> None:
