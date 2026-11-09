@@ -23,6 +23,10 @@ const initial: QueueState = { loaded: false, posts: [], refreshing: false, probl
  * just dealt with should not sit there for the length of it. Nothing is *removed* from here - the
  * fresh list from the node is the truth, and this only says which ones you already know the answer
  * to.
+ *
+ * It sits at module scope because the page that decides is not the page that lists. That also makes
+ * it shared by every queue on the app stack, which is why `refresh` throws it away as soon as the
+ * node answers: a memory is worth less than the list it was written against.
  */
 const decided = new Set<string>()
 
@@ -51,6 +55,10 @@ export function useAdminQueue() {
       posts: s.posts.filter((p) => !decided.has(p.id)),
     }))
     const result = await loadQueue()
+    // Whatever was remembered is now worth less than nothing: the node has answered, and its list
+    // is the truth from here. Keeping the memory would hide a post the node still thinks is
+    // waiting, on this node or whichever one is connected next.
+    decided.clear()
     setState((s) => ({
       ...s,
       loaded: true,

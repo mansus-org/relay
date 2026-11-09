@@ -1,9 +1,10 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback } from 'react'
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { AdminHeader } from '../../../src/presentation/components/AdminHeader'
 import { Alert } from '../../../src/presentation/components/Alert'
+import { Button } from '../../../src/presentation/components/Button'
 import { GeoRing, GeoSun } from '../../../src/presentation/components/Geo'
 import { MonoLabel } from '../../../src/presentation/components/MonoLabel'
 import { QueueRow } from '../../../src/presentation/components/QueueRow'
@@ -36,6 +37,9 @@ export default function AdminQueue() {
   const waiting = `${state.posts.length} ${state.posts.length === 1 ? 'post' : 'posts'}`
   const sub = state.loaded ? `Review queue · ${waiting}` : 'Review queue'
 
+  const retry = () => void refresh()
+  const pull = <RefreshControl refreshing={state.refreshing} tintColor={colors.ink} onRefresh={retry} />
+
   return (
     <View style={styles.screen}>
       <AdminHeader
@@ -50,16 +54,36 @@ export default function AdminQueue() {
           </>
         }
       />
-      {state.loaded && state.posts.length === 0 ? (
-        <View style={styles.empty}>
-          <MonoLabel size={12} tracking={0.16}>
-            Nothing waiting
-          </MonoLabel>
-          <Text style={styles.emptyText}>
-            Every post on this node has been decided. New ones show up here as the model flags them, or as soon as
-            anyone reports them.
-          </Text>
+      {!state.loaded && state.posts.length === 0 ? (
+        <View style={styles.loading}>
+          <ActivityIndicator color={colors.ink} />
         </View>
+      ) : state.posts.length === 0 ? (
+        <ScrollView contentContainerStyle={styles.empty} refreshControl={pull}>
+          {state.problem ? (
+            <>
+              <MonoLabel size={12} tracking={0.16}>
+                Could not read the queue
+              </MonoLabel>
+              <Alert message={state.problem} />
+              <Text style={styles.emptyText}>
+                Nothing here has been decided - the node would not say what is waiting. Pull, or try again, and the
+                posts will come back.
+              </Text>
+              <Button label="Try again" busy={state.refreshing} onPress={retry} />
+            </>
+          ) : (
+            <>
+              <MonoLabel size={12} tracking={0.16}>
+                Nothing waiting
+              </MonoLabel>
+              <Text style={styles.emptyText}>
+                Every post on this node has been decided. New ones show up here as the model flags them, or as soon
+                as anyone reports them.
+              </Text>
+            </>
+          )}
+        </ScrollView>
       ) : (
         <FlatList
           data={state.posts}
@@ -69,10 +93,9 @@ export default function AdminQueue() {
           )}
           contentContainerStyle={styles.list}
           ListHeaderComponent={state.problem ? <Alert message={state.problem} /> : undefined}
-          refreshControl={<RefreshControl refreshing={state.refreshing} tintColor={colors.ink} onRefresh={() => void refresh()} />}
+          refreshControl={pull}
         />
       )}
-      {!state.loaded && state.posts.length > 0 ? <ActivityIndicator style={styles.spinner} color={colors.ink} /> : null}
     </View>
   )
 }
@@ -80,7 +103,7 @@ export default function AdminQueue() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.paper },
   list: { padding: 20, gap: 14, paddingBottom: 40 },
-  empty: { padding: 24, gap: 10 },
+  empty: { padding: 24, gap: 14 },
   emptyText: { fontFamily: fonts.body, fontSize: 16, lineHeight: 24, color: colors.ink2 },
-  spinner: { position: 'absolute', bottom: 24, alignSelf: 'center' },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 })
