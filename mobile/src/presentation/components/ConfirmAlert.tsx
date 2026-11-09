@@ -22,6 +22,11 @@ type Props = {
    * red button stays quiet until something is written.
    */
   reason?: { label: string; value: string; onChange: (text: string) => void; required?: boolean }
+  /**
+   * Why the last attempt failed, said here rather than on the page behind: this modal covers the
+   * page, so an error put there is an error nobody sees, and the button just goes back to waiting.
+   */
+  error?: string | null
   busy?: boolean
   onConfirm: () => void
   onCancel: () => void
@@ -40,6 +45,7 @@ export function ConfirmAlert({
   message,
   confirm,
   reason,
+  error = null,
   busy = false,
   onConfirm,
   onCancel,
@@ -65,9 +71,13 @@ export function ConfirmAlert({
                   value={reason.value}
                   onChangeText={reason.onChange}
                   multiline
+                  // The node keeps a reason of five hundred characters or none at all; a longer one
+                  // is refused, and the admin should find that out here, not from an error.
+                  maxLength={500}
                   accessibilityLabel={reason.label}
                 />
               ) : null}
+              {error ? <Text style={styles.error}>{error}</Text> : null}
             </View>
             <View style={styles.actions}>
               <Pressable
@@ -104,6 +114,7 @@ const styles = StyleSheet.create({
   body: { padding: 18 },
   title: { fontFamily: fonts.display, fontSize: 38, lineHeight: 35, textTransform: 'uppercase', color: colors.ink },
   message: { fontFamily: fonts.body, fontSize: 16.5, lineHeight: 23, color: colors.ink2, marginTop: 10 },
+  error: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.redText, marginTop: 12 },
   actions: { gap: 10, paddingHorizontal: 18, paddingBottom: 18 },
   action: {
     height: 48,

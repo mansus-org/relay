@@ -61,6 +61,12 @@ export default function AdminMembers() {
     }
   }
 
+  /** Backing out of the question, which also throws away what was written under it. */
+  const dropAsking = () => {
+    setAsking(false)
+    setReason('')
+  }
+
   return (
     <View style={styles.screen}>
       <AdminHeader
@@ -118,12 +124,13 @@ export default function AdminMembers() {
             Switch off <Text style={styles.hot}>{member?.handle ?? ''}</Text>?
           </>
         }
-        message="They cannot sign in any more and their posts come down. Nothing is erased: another admin can put them back."
+        message="They cannot sign in any more, and the sessions they have running are thrown out. Nothing is erased: their posts stay up, and another admin can put them back."
         confirm="Switch off"
-        reason={{ label: 'Why (it goes in the trail)', value: reason, onChange: setReason }}
+        reason={{ label: 'Why (it goes in the trail)', value: reason, onChange: setReason, required: true }}
+        error={state.problem}
         busy={state.removing}
         onConfirm={() => void switchOff()}
-        onCancel={() => setAsking(false)}
+        onCancel={dropAsking}
       />
     </View>
   )

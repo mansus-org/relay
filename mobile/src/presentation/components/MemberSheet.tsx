@@ -81,7 +81,7 @@ export function MemberSheet({ detail, myHandle, removing, onClose, onRemove }: P
               )}
               {removable ? (
                 <View style={styles.actions}>
-                  <Button label="Remove member" busy={removing} onPress={onRemove} />
+                  <Button label="Switch off" busy={removing} onPress={onRemove} />
                   <Button label="Close" variant="outline" onPress={onClose} />
                 </View>
               ) : (
