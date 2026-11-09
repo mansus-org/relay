@@ -1,3 +1,4 @@
+import type { AdminError, AdminMember, Invite, MemberDetail, ModeratedPost, ModerationDecision, ReviewAction } from './admin'
 import type { AuthError } from './auth-error'
 import type { NodeTest } from './node-test'
 import type { AuthTokens, Credentials, RefreshedSession, Registration, Session } from './session'
@@ -128,4 +129,35 @@ export type PostalCodeWriter = {
 export type PlaceNamer = {
   /** A human place name for a coordinate, or null when none can be resolved. */
   readonly nameOf: (position: LatLng) => Promise<string | null>
+}
+
+export type ModerationRepository = {
+  /** The posts waiting for a decision, newest first. */
+  readonly queue: () => Promise<Result<readonly ModeratedPost[], AdminError>>
+  /** One post, in whatever state it is in; the queue only ever lists one state at a time. */
+  readonly get: (postId: string) => Promise<Result<ModeratedPost, AdminError>>
+  /** A removal needs a reason. 'already-decided' when another admin got there first. */
+  readonly review: (
+    postId: string,
+    action: ReviewAction,
+    reason: string,
+  ) => Promise<Result<ModerationDecision, AdminError>>
+}
+
+export type MemberRepository = {
+  /** Every account on the node, newest first; `from` is how many to skip. */
+  readonly list: (from?: number) => Promise<Result<readonly AdminMember[], AdminError>>
+  /** An account, and every line of the trail that names it. */
+  readonly detail: (id: number) => Promise<Result<MemberDetail, AdminError>>
+  /** Switches an account off and throws out its sessions; answers how many. Needs a reason; refuses admins. */
+  readonly remove: (id: number, reason: string) => Promise<Result<number, AdminError>>
+}
+
+export type InviteRepository = {
+  /** Every invite handed out, newest first; the token comes back with it. */
+  readonly list: (from?: number) => Promise<Result<readonly Invite[], AdminError>>
+  /** Who it is set aside for, when somebody wrote that down. */
+  readonly issue: (note: string | null) => Promise<Result<Invite, AdminError>>
+  /** Only an open invite can be taken back; a spent one answers 'already-decided'. */
+  readonly revoke: (id: number) => Promise<Result<Invite, AdminError>>
 }

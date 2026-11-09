@@ -1,4 +1,7 @@
 import type { SessionEvents } from '../domain'
+import type { makeLoadModeratedPost, makeLoadQueue, makeReviewPost } from './moderation'
+import type { makeLoadMember, makeLoadMembers, makeRemoveMember } from './members'
+import type { makeIssueInvite, makeLoadInvites, makeRevokeInvite } from './invites'
 import type { makeCreateCommunity, makeJoinCommunity, makeLoadCommunity, makeLoadCommunityFeed, makeLoadNearbyCommunities } from './communities'
 import type {
   makeCancelRsvp,
@@ -43,6 +46,9 @@ export {
   type DetailedEvent,
 } from './events'
 export { makeLoadFeed } from './feed'
+export { makeLoadModeratedPost, makeLoadQueue, makeReviewPost } from './moderation'
+export { makeLoadMember, makeLoadMembers, makeRemoveMember } from './members'
+export { makeIssueInvite, makeLoadInvites, makeRevokeInvite } from './invites'
 export { makeCellPlaceName, makeResolveLocation, type LocationError, type ResolvedLocation } from './resolve-location'
 export { makeReadPostalCode, makeResolvePostalCode } from './resolve-postal-code'
 export { makeSubscribeToPosts } from './subscribe-to-posts'
@@ -66,6 +72,18 @@ export type UseCases = {
   readonly logout: ReturnType<typeof makeLogout>
   readonly restoreSession: ReturnType<typeof makeRestoreSession>
   readonly loadFeed: ReturnType<typeof makeLoadFeed>
+  /** What is waiting for a decision, and what happens when somebody makes one. */
+  readonly loadQueue: ReturnType<typeof makeLoadQueue>
+  readonly loadModeratedPost: ReturnType<typeof makeLoadModeratedPost>
+  readonly reviewPost: ReturnType<typeof makeReviewPost>
+  /** The accounts on this node, the trail behind one, and the switch that turns one off. */
+  readonly loadMembers: ReturnType<typeof makeLoadMembers>
+  readonly loadMember: ReturnType<typeof makeLoadMember>
+  readonly removeMember: ReturnType<typeof makeRemoveMember>
+  /** The links that let people in, and the hand that hands one out or takes it back. */
+  readonly loadInvites: ReturnType<typeof makeLoadInvites>
+  readonly issueInvite: ReturnType<typeof makeIssueInvite>
+  readonly revokeInvite: ReturnType<typeof makeRevokeInvite>
   readonly resolveLocation: ReturnType<typeof makeResolveLocation>
   /** The place a typed postal code names, or why Relay has no place there. */
   readonly resolvePostalCode: ReturnType<typeof makeResolvePostalCode>

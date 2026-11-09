@@ -49,7 +49,7 @@ jest.mock('react-native-safe-area-context', () => ({
 
 jest.mock('expo-constants', () => ({ expoConfig: { version: '2.0.0' } }))
 
-const ada: Profile = { handle: 'ada', displayName: 'Ada L.' }
+const ada: Profile = { handle: 'ada', displayName: 'Ada L.', isAdmin: false }
 const answered = (host: string, reachable = true): NodeTest => ({
   host,
   reachable,

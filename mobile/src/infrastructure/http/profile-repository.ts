@@ -4,9 +4,13 @@ import { err, ok, type AuthError, type Profile, type ProfileRepository } from '.
 import { PROFILE_PATH } from './endpoints'
 
 /** What the node keeps about your own account. The handle never changes; the name is yours. */
-type ProfileDto = { id: number; username: string; display_name: string }
+type ProfileDto = { id: number; username: string; display_name: string; is_admin: boolean }
 
-const toProfile = ({ username, display_name: displayName }: ProfileDto): Profile => ({ handle: username, displayName })
+const toProfile = ({ username, display_name: displayName, is_admin: isAdmin }: ProfileDto): Profile => ({
+  handle: username,
+  displayName,
+  isAdmin,
+})
 
 /** A refused name is a different sentence from a refused password, so it is a different error. */
 const toProfileError = (error: unknown): AuthError => {
