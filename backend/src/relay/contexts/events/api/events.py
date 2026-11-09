@@ -261,14 +261,14 @@ async def create_event(
     response_model=EventListResponse,
     summary="What is on nearby",
     description=(
-        "Events starting after `from` within `radius` km of `cell`, which is the "
+        "Events starting at or after `from` within `radius` km of `cell`, which is the "
         "reader's current H3 resolution-8 cell. `from` is a date (2026-03-04) or a full "
-        "timestamp and defaults to now, so the default page is what has not started yet. "
-        "`from=past` reads the other way: what has already started, most recent first. "
-        "Pass `next_from` back as `from` for the next page — it is one row and not one "
-        "minute, so twenty events that all start at seven still come out twenty at a "
-        "time. An event that named no cell is not here at all. Public, like every read "
-        "in Relay."
+        "timestamp and defaults to now, so the default page is what has not started yet, "
+        "and whatever starts exactly at the time you wrote is on it. `from=past` reads "
+        "the other way: what has already started, most recent first. Pass `next_from` "
+        "back as `from` for the next page — it names one row and cuts past it, so twenty "
+        "events that all start at seven still come out twenty at a time. An event that "
+        "named no cell is not here at all. Public, like every read in Relay."
     ),
     responses={400: {"description": "The cell, the radius, or `from` was not usable."}},
 )
