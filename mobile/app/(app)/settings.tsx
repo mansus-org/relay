@@ -122,7 +122,7 @@ export default function Settings() {
                     </IconBox>
                   ),
                   end: <Value strong>Open</Value>,
-                  onPress: () => router.push('/admin'),
+                  onPress: () => router.push('/admin/queue'),
                 },
               ]}
             />

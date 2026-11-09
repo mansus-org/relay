@@ -30,7 +30,7 @@ export default function AdminPost() {
   const [asking, setAsking] = useState(false)
   const [reason, setReason] = useState('')
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/admin'))
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/admin/queue'))
   const post = state.post
 
   const approve = async () => {

@@ -34,7 +34,7 @@ export default function AdminInvites() {
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/settings'))
   const go = (tab: 'queue' | 'members' | 'invites') => {
-    if (tab === 'queue') router.replace('/admin')
+    if (tab === 'queue') router.replace('/admin/queue')
     if (tab === 'members') router.replace('/admin/members')
   }
 

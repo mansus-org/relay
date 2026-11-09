@@ -140,6 +140,8 @@ function renderSettings(
     testNode,
     switchNode,
     logout,
+    /** How many rows on the screen answer to that title. Zero means the row is not there. */
+    rows: (title: string) => renderer.root.findAll((node) => node.props.title === title).length,
     /** The name the session carries, which is what the rest of the app reads back. */
     sessionName: () => seen.name,
     text: (value: string) => texts().filter((t) => t.toUpperCase() === value.toUpperCase()).length,
@@ -166,6 +168,24 @@ describe('the settings screen', () => {
   beforeEach(() => {
     router.replace.mockClear()
     router.back.mockClear()
+    router.push.mockClear()
+  })
+
+  it('keeps the moderation door off the screen for anybody the node did not open it for', async () => {
+    const screen = renderSettings()
+    await flush()
+
+    expect(screen.rows('Moderation')).toBe(0)
+  })
+
+  it('shows the moderation door to an admin, and the queue is what is behind it', async () => {
+    const screen = renderSettings({ profile: { ...ada, isAdmin: true } })
+    await flush()
+
+    expect(screen.rows('Moderation')).toBe(1)
+    screen.open('Moderation')
+
+    expect(router.push).toHaveBeenCalledWith('/admin/queue')
   })
 
   it('reads the account and the node it stands on', async () => {
