@@ -1,0 +1,46 @@
+# Postgres instead of the SQLite file. Copy it in and go:
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+#   docker compose up -d
+#
+# Compose merges this file into docker-compose.yml whenever it is sitting there,
+# which is why it carries only the difference: the database, the URL that points
+# relay at it, and the volume the data lives on.
+#
+# The image runs `alembic upgrade head` before it serves, so the schema is created
+# against this database on first boot; depends_on holds relay back until pg_isready
+# passes.
+#
+# Back to SQLite by deleting the copy. The volume and its data stay until
+# `docker compose down -v`.
+
+services:
+  relay:
+    environment:
+      # Spelled out with the async driver the backend would pick anyway
+      # (backend/src/relay/shared/config.py takes a plain postgres:// too), so
+      # `docker compose config` shows what is actually running.
+      DATABASE_URL: postgresql+asyncpg://relay:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/relay
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: relay
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # No port published: relay reaches it over the compose network, and nothing
+    # else needs to.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  postgres-data:
