@@ -3,6 +3,7 @@ import type { makeCreateCommunity, makeJoinCommunity, makeLoadCommunity, makeLoa
 import type {
   makeCancelRsvp,
   makeCreateEvent,
+  makeLoadCommunityEvents,
   makeLoadEvent,
   makeLoadNearbyEvents,
   makeRsvpToEvent,
@@ -37,6 +38,7 @@ export { makeCreatePost, makeListJoinedCommunities, type CreatePostInput } from 
 export {
   makeCancelRsvp,
   makeCreateEvent,
+  makeLoadCommunityEvents,
   makeLoadEvent,
   makeLoadNearbyEvents,
   makeRsvpToEvent,
@@ -88,6 +90,8 @@ export type UseCases = {
   readonly joinCommunity: ReturnType<typeof makeJoinCommunity>
   readonly createCommunity: ReturnType<typeof makeCreateCommunity>
   readonly loadNearbyEvents: ReturnType<typeof makeLoadNearbyEvents>
+  /** What one community has on, paged the same way. */
+  readonly loadCommunityEvents: ReturnType<typeof makeLoadCommunityEvents>
   readonly loadEvent: ReturnType<typeof makeLoadEvent>
   readonly rsvpToEvent: ReturnType<typeof makeRsvpToEvent>
   readonly cancelRsvp: ReturnType<typeof makeCancelRsvp>

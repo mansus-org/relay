@@ -83,6 +83,11 @@ export type CommunityRepository = {
 export type EventRepository = {
   /** Events whose cell is within the query's reach, soonest first; `from` is a date, an instant or 'past'. */
   readonly list: (query: { cell: string; radiusKm: number; from?: string }) => Promise<Result<EventPage<Event>, ApiError>>
+  /**
+   * One community's own list, with the same `from` rules as `list`. Nothing is cut by distance: a
+   * community is people rather than a place. 'not-found' when there is no such community.
+   */
+  readonly listForCommunity: (query: { communityId: string; from?: string }) => Promise<Result<EventPage<Event>, EventError>>
   /** 'not-found' when there is no such event; `userRsvped` is only ever true behind a token. */
   readonly get: (id: string) => Promise<Result<EventDetail, EventError>>
   readonly create: (event: NewEvent) => Promise<Result<Event, EventError>>
