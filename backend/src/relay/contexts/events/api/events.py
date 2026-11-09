@@ -27,7 +27,7 @@ from relay.contexts.events.domain.event import (
     MAX_TITLE_LENGTH,
     EventNotFoundError,
 )
-from relay.contexts.events.domain.listing import EventDetails, EventListingPage, as_text
+from relay.contexts.events.domain.listing import EventDetails, EventListingPage
 from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, NotGoingError, RsvpOutcome
 from relay.shared.api.dependencies import get_container
 from relay.shared.domain import ValidationError
@@ -117,7 +117,7 @@ class EventResponse(BaseModel):
 
 
 class EventListResponse(BaseModel):
-    """Soonest first. `next_from` is null once there is nothing later to ask for."""
+    """Soonest first. `next_from` is null once there is nothing left to ask for."""
 
     events: list[EventResponse]
     next_from: str | None = None
@@ -126,7 +126,7 @@ class EventListResponse(BaseModel):
     def from_domain(cls, page: EventListingPage) -> "EventListResponse":
         return cls(
             events=[EventResponse.from_domain(details) for details in page.events],
-            next_from=as_text(page.next_from),
+            next_from=page.next_from.as_text() if page.next_from is not None else None,
         )
 
 
@@ -148,10 +148,12 @@ class EventDetailResponse(EventResponse):
 
 
 class RsvpResponse(BaseModel):
-    """What saying you are going came to: the event, and the tally after you.
+    """What saying you are going came to: the event, and the tally beside it now.
 
     There is no list of names behind the number, and a second tap is a 409 rather than
-    a second place, so the count here is the one this call produced.
+    a second place. The count is read after this call has landed, so it includes you; it
+    may also include someone who said they were coming in the same moment, because two
+    people can RSVP to the same supper at once and neither is wrong.
     """
 
     event_id: str
@@ -167,9 +169,10 @@ class NewEventRequest(BaseModel):
 
     `starts_at` is a timestamp with a zone, and it is read here rather than by
     pydantic so that a time nobody can place gets Relay's sentence about it and a 400,
-    not a field-error shape of its own. `location_cell` is where it happens, in H3:
-    leaving it out means the event reaches no locality's list, and Relay does not
-    guess a locality from the venue's text.
+    not a field-error shape of its own. An `ends_at` sent as blanks is a field cleared:
+    the same as not sending it. `location_cell` is where it happens, in H3: leaving it
+    out means the event reaches no locality's list, and Relay does not guess a locality
+    from the venue's text.
     """
 
     title: str
@@ -216,10 +219,11 @@ def get_cancel_rsvp(
     status_code=201,
     summary="Plan an event",
     description=(
-        "Saves an event and returns it. `starts_at` is a timestamp with a zone, and "
-        "`ends_at` has to be after it. `location_cell` has to be a real resolution-8 "
-        "H3 cell, because an event filed anywhere else is an event no locality's list "
-        "will ever read."
+        "Saves an event and returns it. `starts_at` is a timestamp with a zone — a time "
+        "that does not say which zone it is in is refused rather than read as someone "
+        "else's evening — and `ends_at` has to be after it. `location_cell` has to be a "
+        "real resolution-8 H3 cell, because an event filed anywhere else is an event no "
+        "locality's list will ever read."
     ),
     responses={
         400: {
@@ -228,6 +232,7 @@ def get_cancel_rsvp(
             "wrong way round, or `location_cell` was not a resolution-8 H3 cell."
         },
         401: {"description": "No bearer token to plan as."},
+        422: {"description": "A field was not a string at all."},
     },
 )
 async def create_event(
@@ -257,10 +262,12 @@ async def create_event(
     description=(
         "Events starting after `from` within `radius` km of `cell`, which is the "
         "reader's current H3 resolution-8 cell. `from` is a date (2026-03-04) or a full "
-        "timestamp and defaults to now, so the default page is what has not started yet; "
-        "`from=past` is the other direction. Paged by `starts_at`: pass `next_from` back "
-        "as `from` for the next page. An event that named no cell is not here at all. "
-        "Public, like every read in Relay."
+        "timestamp and defaults to now, so the default page is what has not started yet. "
+        "`from=past` reads the other way: what has already started, most recent first. "
+        "Pass `next_from` back as `from` for the next page — it is one row and not one "
+        "minute, so twenty events that all start at seven still come out twenty at a "
+        "time. An event that named no cell is not here at all. Public, like every read "
+        "in Relay."
     ),
     responses={400: {"description": "The cell, the radius, or `from` was not usable."}},
 )
@@ -275,7 +282,8 @@ async def read_events(
         str | None,
         Query(
             alias="from",
-            description="A date or instant to start from, or `past`. Default: now.",
+            description="A date, an instant, `past` for what already started (most "
+            "recent first), or the `next_from` of the last page. Default: now, forwards.",
         ),
     ] = None,
 ) -> EventListResponse:
@@ -344,8 +352,8 @@ async def rsvp_event(
     summary="Give your place back",
     description=(
         "Stops going to an event. There is nothing to give back when the event is gone "
-        "or you were never going, so both are a 404 and a second tap does not pretend "
-        "to have undone the first."
+        "or you were never going, so both are a 404: a tap that lands after the one "
+        "that worked does not get to claim it undid anything."
     ),
     responses={
         401: {"description": "No bearer token to leave as."},

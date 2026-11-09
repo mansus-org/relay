@@ -33,10 +33,10 @@ class Rsvp(Entity):
 
 
 class RsvpOutcome(ValueObject):
-    """What saying you are going came to: the event, and the tally after you.
+    """What saying you are going came to: the event, and the tally once this one is in.
 
-    A second tap is a 409 rather than a quiet success, so nothing here has to say
-    whether this call was the one that took the place.
+    The tally is read after the place was written, so it counts you. It is not a lock:
+    someone else's place can arrive in the same moment and be counted too.
     """
 
     event: Event

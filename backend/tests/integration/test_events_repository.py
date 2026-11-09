@@ -1,5 +1,6 @@
 """The events and rsvps tables: what was planned comes back, and the listing filters."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -9,12 +10,15 @@ import pytest
 from sqlalchemy import Select, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from relay.contexts.events.application.rsvp_event import RsvpEvent
 from relay.contexts.events.domain.event import Event
+from relay.contexts.events.domain.listing import ListingStart
 from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp
 from relay.contexts.events.infrastructure.h3_cells import rings_for
 from relay.contexts.events.infrastructure.models import EventModel
 from relay.contexts.events.infrastructure.repository import upcoming_statement
 from relay.contexts.events.infrastructure.unit_of_work import SqlAlchemyEventsUnitOfWork
+from relay.shared.application import Clock
 from relay.shared.infrastructure.database import create_session_factory
 
 VIGO = "883920cd1bfffff"
@@ -64,9 +68,11 @@ async def seed(uow: SqlAlchemyEventsUnitOfWork, *events: Event) -> None:
 
 
 async def listing(
-    uow: SqlAlchemyEventsUnitOfWork, cells: list[str], after: datetime | None = STARTS
+    uow: SqlAlchemyEventsUnitOfWork, cells: list[str], start: ListingStart | None = None
 ):
-    return await uow.events.page_upcoming(cells=cells, after=after, limit=20)
+    return await uow.events.page_upcoming(
+        cells=cells, start=start or ListingStart(at=STARTS), limit=20
+    )
 
 
 async def test_an_event_comes_back_as_it_was_planned(uow: SqlAlchemyEventsUnitOfWork) -> None:
@@ -154,22 +160,33 @@ async def test_an_event_that_already_started_is_not_coming_up(
     assert [event.title for event in await listing(uow, [VIGO])] == ["later"]
 
 
-async def test_a_page_with_no_floor_reads_what_already_happened(
+async def test_a_page_of_nothing_asks_for_no_counts(uow: SqlAlchemyEventsUnitOfWork) -> None:
+    """An empty locality reads as empty, and the counts are never asked for nothing.
+
+    A `where ... in ()` over no ids is a syntax error in some databases, so the read that
+    tallies a page has to notice an empty page before it writes the query.
+    """
+    assert await listing(uow, [VIGO]) == []
+    assert await uow.rsvps.counts_for([]) == {}
+
+
+async def test_a_page_read_backwards_reads_the_recent_past_first(
     uow: SqlAlchemyEventsUnitOfWork,
 ) -> None:
-    """A reader asking for the past leaves the place as the only filter left."""
+    """The other direction, from a wall past everything: most recent first."""
     await seed(uow, planned("last week", hours=-24 * 7), planned("later", hours=1))
 
-    assert [event.title for event in await listing(uow, [VIGO], after=None)] == [
-        "last week",
-        "later",
-    ]
+    back = await listing(
+        uow, [VIGO], start=ListingStart(at=STARTS + timedelta(days=1), backwards=True)
+    )
+
+    assert [event.title for event in back] == ["later", "last week"]
 
 
 async def test_a_page_stops_where_it_was_told_to(uow: SqlAlchemyEventsUnitOfWork) -> None:
     await seed(uow, *[planned(f"event {n}", hours=n) for n in range(5)])
 
-    found = await uow.events.page_upcoming(cells=[VIGO], after=STARTS, limit=2)
+    found = await uow.events.page_upcoming(cells=[VIGO], start=ListingStart(at=STARTS), limit=2)
 
     assert [event.title for event in found] == ["event 1", "event 2"]
 
@@ -182,9 +199,53 @@ async def test_a_page_starts_at_the_same_instant_when_the_time_comes_in_another_
 
     in_tokyo = (STARTS + timedelta(hours=3)).astimezone(TOKYO)
 
-    assert [event.title for event in await listing(uow, [VIGO], after=in_tokyo)] == [
+    assert [
+        event.title for event in await listing(uow, [VIGO], start=ListingStart(at=in_tokyo))
+    ] == [
         "event 4",
     ]
+
+
+async def test_events_sharing_a_start_time_still_come_out_a_page_at_a_time(
+    uow: SqlAlchemyEventsUnitOfWork,
+) -> None:
+    """Twenty suppers at seven is an ordinary Saturday, and the table has to page it.
+
+    The marker names a row and not an instant, so the ones that did not fit on the first
+    page are on the second rather than past it and gone.
+    """
+    await seed(uow, *[planned(f"choir {n}", hours=1) for n in range(25)])
+
+    first = await uow.events.page_upcoming(cells=[VIGO], start=ListingStart(at=STARTS), limit=20)
+    second = await uow.events.page_upcoming(
+        cells=[VIGO],
+        start=ListingStart(at=first[-1].starts_at, after_id=first[-1].id),
+        limit=20,
+    )
+
+    # Which of them comes first is the row's id and nobody's choice, so the assertion is
+    # about the shape of the two pages: all of them, once each, in the order given.
+    assert len(first) == 20 and len(second) == 5
+    seen = [(event.starts_at, event.id) for event in first + second]
+    assert len(seen) == 25
+    assert len(set(seen)) == 25
+    assert seen == sorted(seen)
+
+
+async def test_a_page_read_backwards_stops_where_it_was_told_to(
+    uow: SqlAlchemyEventsUnitOfWork,
+) -> None:
+    await seed(uow, *[planned(f"event {n}", hours=-(n + 1)) for n in range(5)])
+
+    wall = ListingStart(at=STARTS, backwards=True)
+    first = await uow.events.page_upcoming(cells=[VIGO], start=wall, limit=2)
+    second = await uow.events.page_upcoming(
+        cells=[VIGO],
+        start=ListingStart(at=first[-1].starts_at, after_id=first[-1].id, backwards=True),
+        limit=2,
+    )
+
+    assert [event.title for event in first + second] == ["event 0", "event 1", "event 2", "event 3"]
 
 
 async def test_how_many_are_going_comes_back_per_event(uow: SqlAlchemyEventsUnitOfWork) -> None:
@@ -253,6 +314,39 @@ async def test_the_same_member_cannot_take_two_places(migrated_engine: AsyncEngi
     with pytest.raises(AlreadyRsvpedError):
         async with SqlAlchemyEventsUnitOfWork(factory) as unit:
             await unit.rsvps.add(going_to(event, member))
+
+    async with SqlAlchemyEventsUnitOfWork(factory) as unit:
+        assert await unit.rsvps.count_for(event.id) == 1
+
+
+async def test_one_member_cannot_take_two_places_by_saying_it_twice_at_once(
+    migrated_engine: AsyncEngine,
+) -> None:
+    """Two taps, one place: the loser hears "already going" and not "you're in".
+
+    Each tap runs in its own session, because that is what two taps are. Neither can see
+    what the other is writing, so the check in the use case passes for both and the
+    unique pair is the only thing left between one member and two places.
+    """
+    factory = create_session_factory(migrated_engine)
+    event = planned("Book swap")
+    member = uuid4()
+    async with SqlAlchemyEventsUnitOfWork(factory) as unit:
+        await unit.events.add(event)
+        await unit.commit()
+
+    async def tap() -> int | AlreadyRsvpedError:
+        going = RsvpEvent(SqlAlchemyEventsUnitOfWork(factory), Clock())
+        try:
+            outcome = await going.execute(event_id=event.id, member_id=member)
+        except AlreadyRsvpedError as refused:
+            return refused
+        return outcome.rsvp_count
+
+    results = await asyncio.gather(tap(), tap())
+
+    assert [count for count in results if isinstance(count, int)] == [1]
+    assert len([r for r in results if isinstance(r, AlreadyRsvpedError)]) == 1
 
     async with SqlAlchemyEventsUnitOfWork(factory) as unit:
         assert await unit.rsvps.count_for(event.id) == 1
@@ -334,6 +428,6 @@ async def test_the_listing_walks_the_index_it_was_given(
         payload += rows(cell, 49, index * 49)
     await load(migrated_engine, payload)
 
-    plan = await plan_for(migrated_engine, upcoming_statement(walking, STARTS, 21))
+    plan = await plan_for(migrated_engine, upcoming_statement(walking, ListingStart(at=STARTS), 21))
 
     assert "ix_events_location_cell_starts_at" in plan, plan

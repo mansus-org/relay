@@ -99,11 +99,19 @@ def test_an_event_keeps_the_end_it_was_given() -> None:
     assert planned(ends_at=STARTS + timedelta(hours=2)).ends_at == STARTS + timedelta(hours=2)
 
 
-def test_a_time_written_without_a_zone_is_the_instant_it_names_in_utc() -> None:
-    """Events are stored in UTC, so a naive time is read as UTC and not as local."""
-    naive = datetime(2026, 3, 4, 18)
+def test_a_time_that_names_no_zone_is_refused() -> None:
+    """Half past seven is half past seven somewhere, and read as UTC it is another evening.
 
-    assert planned(starts_at=naive).starts_at == STARTS
+    A phone that sends its own wall clock would have its supper filed hours off and
+    never be told, so the zone is asked for rather than guessed at.
+    """
+    with pytest.raises(InvalidTimeError, match="zone"):
+        planned(starts_at=datetime(2026, 3, 4, 18))
+
+
+def test_a_time_written_as_text_that_names_no_zone_is_refused_too() -> None:
+    with pytest.raises(InvalidTimeError, match="zone"):
+        planned(starts_at="2026-03-04T18:00:00")
 
 
 def test_a_time_in_another_zone_is_kept_as_the_instant_it_names() -> None:
@@ -114,8 +122,26 @@ def test_a_time_in_another_zone_is_kept_as_the_instant_it_names() -> None:
 
 
 def test_a_time_written_as_text_is_read_as_a_time() -> None:
-    """The same string comes back as the `next_after` of a page, so it has to read back."""
+    """The same string comes back as the `next_from` of a page, so it has to read back."""
     assert planned(starts_at="2026-03-04T18:00:00Z").starts_at == STARTS
+
+
+@pytest.mark.parametrize("starts_at", ["0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"])
+def test_a_time_that_cannot_be_moved_into_utc_is_refused(starts_at: str) -> None:
+    """A time at the edge of the calendar is a real time and no datetime can name it in UTC.
+
+    The offset is what does it: the wall clock reads fine where it stands and is
+    impossible once it is moved, which is the exact moment the conversion used to throw
+    past the handler and out of the request as a 500.
+    """
+    with pytest.raises(InvalidTimeError):
+        planned(starts_at=starts_at)
+
+
+@pytest.mark.parametrize("ends_at", ["0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"])
+def test_an_end_that_cannot_be_moved_into_utc_is_refused(ends_at: str) -> None:
+    with pytest.raises(InvalidTimeError):
+        planned(starts_at="2026-03-04T18:00:00Z", ends_at=ends_at)
 
 
 @pytest.mark.parametrize("text", ["", "next Tuesday", "2026-13-04T18:00:00"])

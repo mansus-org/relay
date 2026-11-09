@@ -39,7 +39,7 @@ def as_(member: UUID = HOST) -> dict[str, str]:
 
 
 def at(hours: float) -> str:
-    """A time `hours` from now, in the zone-less-of-its-own way a phone sends one."""
+    """A time `hours` from now, written the way a phone writes one: with its zone on it."""
     return (NOW + timedelta(hours=hours)).isoformat()
 
 
@@ -92,11 +92,20 @@ async def test_an_event_can_be_planned_without_saying_where_or_when_it_ends(
     assert event["details"] is None
 
 
-async def test_a_time_that_names_no_zone_is_the_instant_it_names_in_utc(api: AsyncClient) -> None:
-    """A client that sends `2030-01-01T18:00:00` means that wall clock, not the server's."""
-    event = await plan(api, "Supper", starts_at="2030-01-01T18:00:00")
+async def test_a_time_that_names_no_zone_is_refused(api: AsyncClient) -> None:
+    """`2030-01-01T18:00:00` is a wall clock that never says whose.
 
-    assert datetime.fromisoformat(event["starts_at"]) == datetime(2030, 1, 1, 18, tzinfo=UTC)
+    Read as the server's zone it files a supper hours off from the one its host meant,
+    and nothing ever tells them: the zone is asked for instead of guessed.
+    """
+    response = await api.post(
+        "/api/events",
+        json={"title": "Supper", "starts_at": "2030-01-01T18:00:00"},
+        headers=as_(),
+    )
+
+    assert response.status_code == 400
+    assert "zone" in response.json()["detail"]
 
 
 @pytest.mark.parametrize(
@@ -142,19 +151,36 @@ async def test_a_description_over_what_anyone_will_read_is_refused(api: AsyncCli
     assert "2000" in response.json()["detail"]
 
 
-@pytest.mark.parametrize("starts_at", [None, 4, [], "next Tuesday", "2030-13-01"])
+@pytest.mark.parametrize(
+    "starts_at, code",
+    [(None, 422), (4, 422), ([], 422), ("next Tuesday", 400), ("2030-13-01", 400)],
+)
 async def test_an_event_with_no_readable_when_is_refused(
-    api: AsyncClient, starts_at: object
+    api: AsyncClient, starts_at: object, code: int
 ) -> None:
-    """A time nobody can place is the client's mistake, and a string that is not one
-    gets Relay's sentence about it rather than a field-error shape of its own."""
+    """A time nobody can place is the client's mistake.
+
+    A field of the wrong shape is pydantic's refusal to read the body at all, and a
+    string that is not a time gets Relay's sentence about it instead of a field-error
+    shape of its own. Each input has one answer, and the test holds it to that one.
+    """
     response = await api.post(
         "/api/events", json={"title": "Book swap", "starts_at": starts_at}, headers=as_()
     )
 
-    assert response.status_code in (400, 422)
-    if response.status_code == 400:
+    assert response.status_code == code
+    if code == 400:
         assert "not a time" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("title", [None, 4, []])
+async def test_a_title_that_is_not_text_at_all_is_refused(api: AsyncClient, title: object) -> None:
+    """A body that sends a title of the wrong shape never reaches the event at all."""
+    response = await api.post(
+        "/api/events", json={"title": title, "starts_at": at(1)}, headers=as_()
+    )
+
+    assert response.status_code == 422
 
 
 async def test_an_event_that_ends_before_it_starts_is_refused(api: AsyncClient) -> None:
@@ -166,6 +192,45 @@ async def test_an_event_that_ends_before_it_starts_is_refused(api: AsyncClient) 
 
     assert response.status_code == 400
     assert "end" in response.json()["detail"]
+
+
+async def test_an_event_that_ends_the_instant_it_starts_is_refused(api: AsyncClient) -> None:
+    """An event that is over as it begins has not been planned, it has been mistyped."""
+    response = await api.post(
+        "/api/events",
+        json={"title": "Book swap", "starts_at": at(10), "ends_at": at(10)},
+        headers=as_(),
+    )
+
+    assert response.status_code == 400
+    assert "end" in response.json()["detail"]
+
+
+async def test_an_end_cleared_rather_than_omitted_is_no_end(api: AsyncClient) -> None:
+    """`ends_at` emptied in a form is the host not knowing when it finishes, not a time."""
+    event = await plan(api, "Book swap", starts_at=at(1), ends_at="   ")
+
+    assert event["ends_at"] is None
+
+
+async def test_a_venue_named_over_what_a_card_holds_is_refused(api: AsyncClient) -> None:
+    response = await api.post(
+        "/api/events",
+        json={"title": "Book swap", "starts_at": at(1), "venue_name": "a" * 201},
+        headers=as_(),
+    )
+
+    assert response.status_code == 400
+    assert "200" in response.json()["detail"]
+
+
+async def test_a_place_and_a_description_of_nothing_at_all_are_kept_as_nothing(
+    api: AsyncClient,
+) -> None:
+    """Blanks are stored as blanks, so a card never has to know that spaces mean empty."""
+    event = await plan(api, "Book swap", starts_at=at(1), venue_name="   ", details=" \n ")
+
+    assert (event["venue_name"], event["details"]) == (None, None)
 
 
 @pytest.mark.parametrize("cell", ["not-a-cell", "a" * 40])
@@ -289,6 +354,44 @@ async def test_the_list_pages_and_tells_you_where_the_next_page_starts(api: Asyn
     assert len(set(seen)) == 25
 
 
+async def test_events_that_all_start_at_the_same_time_still_page(api: AsyncClient) -> None:
+    """A town's events all start at seven, and twenty of them will not fit on a page.
+
+    A marker that named only the instant would resume past all twenty and the ones that
+    did not fit would never be on any page: this is the bug a client would hit first.
+    """
+    seven = at(7)
+    for index in range(25):
+        await plan(api, f"choir {index}", starts_at=seven, location_cell=VIGO)
+
+    first = (await api.get("/api/events", params={"cell": VIGO})).json()
+    second = (
+        await api.get("/api/events", params={"cell": VIGO, "from": first["next_from"]})
+    ).json()
+
+    assert len(first["events"]) == 20
+    # The marker names the row the page stopped on, and nothing else could have.
+    wall, _, row = first["next_from"].partition("~")
+    assert datetime.fromisoformat(wall) == datetime.fromisoformat(first["events"][-1]["starts_at"])
+    assert row == first["events"][-1]["id"]
+    seen = [event["id"] for event in first["events"] + second["events"]]
+    assert len(seen) == 25
+    assert len(set(seen)) == 25
+    assert second["next_from"] is None
+
+
+async def test_exactly_one_page_of_events_promises_no_second_one(api: AsyncClient) -> None:
+    """`next_from` is a promise that there is more, and twenty with no twenty-first
+    behind it is a full page with nothing to go on."""
+    for index in range(20):
+        await plan(api, f"event {index}", starts_at=at(index + 1), location_cell=VIGO)
+
+    page = await on(api)
+
+    assert len(page["events"]) == 20
+    assert page["next_from"] is None
+
+
 async def test_a_page_asked_for_from_another_zone_starts_at_the_same_instant(
     api: AsyncClient,
 ) -> None:
@@ -335,18 +438,74 @@ async def test_the_list_refuses_a_radius_that_would_read_too_far(
     ).status_code == 400
 
 
-@pytest.mark.parametrize("from_", ["", "yesterday", "2030-13-01", "1700000000"])
+@pytest.mark.parametrize(
+    "from_",
+    [
+        "yesterday",
+        "2030-13-01",
+        "1700000000",
+        "9999-12-31T23:59:59-01:00",
+        "2030-05-11T00:30:00Z~not-a-row",
+    ],
+)
 async def test_a_start_this_list_never_handed_out_is_refused(api: AsyncClient, from_: str) -> None:
-    """A client that clears its marker may still send the parameter, and that is not a date."""
+    """A client that clears its marker may still send the parameter, and that is not a date.
+
+    The last one is shaped like a marker this list hands out and was not: a made-up row is
+    as unusable as a made-up day.
+    """
     response = await api.get("/api/events", params={"cell": VIGO, "from": from_})
 
     assert response.status_code == 400
 
 
+async def test_a_start_cleared_rather_than_omitted_reads_the_default_page(
+    api: AsyncClient,
+) -> None:
+    """`from=` is a form field emptied, not a date: it means start from now like no marker."""
+    await plan(api, "tomorrow", starts_at=at(24), location_cell=VIGO)
+
+    cleared = await api.get("/api/events", params={"cell": VIGO, "from": ""})
+
+    assert [event["title"] for event in cleared.json()["events"]] == ["tomorrow"]
+
+
+async def test_a_start_that_arrived_with_a_space_where_the_plus_was(api: AsyncClient) -> None:
+    """A `+` sent unencoded lands as a space, and that is not a time.
+
+    The reason the marker this list hands out is written with a `Z` and never an offset.
+    """
+    response = await api.get(
+        "/api/events", params={"cell": VIGO, "from": "2030-01-01T19:00:00 01:00"}
+    )
+
+    assert response.status_code == 400
+
+
+async def test_an_event_starting_exactly_at_the_start_is_not_on_the_page(
+    api: AsyncClient,
+) -> None:
+    """`from` is where the reading picks up, not a row to hand back again.
+
+    The marker names the last row of the page before, so the row itself is already read:
+    a page that included it would show every boundary event twice.
+    """
+    marker = (await plan(api, "tonight", starts_at=at(6), location_cell=VIGO))["starts_at"]
+    await plan(api, "later", starts_at=at(7), location_cell=VIGO)
+
+    page = await api.get("/api/events", params={"cell": VIGO, "from": marker})
+
+    assert [event["title"] for event in page.json()["events"]] == ["later"]
+
+
 async def test_the_events_that_already_happened_are_behind_a_word_for_them(
     api: AsyncClient,
 ) -> None:
-    """The default page is what has not started; `from=past` is how you ask for the rest."""
+    """The default page is what has not started; `from=past` is how you ask for the rest.
+
+    The rest means what already started: tomorrow is on the other side of now and stays
+    on the forwards page, and the past reads back with the most recent first.
+    """
     await plan(api, "last week", starts_at=at(-24 * 7), location_cell=VIGO)
     await plan(api, "tomorrow", starts_at=at(24), location_cell=VIGO)
 
@@ -354,7 +513,7 @@ async def test_the_events_that_already_happened_are_behind_a_word_for_them(
 
     past = await api.get("/api/events", params={"cell": VIGO, "from": "past"})
 
-    assert [event["title"] for event in past.json()["events"]] == ["last week", "tomorrow"]
+    assert [event["title"] for event in past.json()["events"]] == ["last week"]
 
 
 # Reading one event.
@@ -383,17 +542,22 @@ async def test_reading_an_event_says_whether_you_are_in_that_number(api: AsyncCl
     ] is False
 
 
-async def test_reading_an_event_without_a_token_says_nothing_about_a_reader(
-    api: AsyncClient,
+@pytest.mark.parametrize("header", [None, {}, {"Authorization": "Bearer not-a-uuid"}])
+async def test_reading_an_event_without_a_token_to_read_it_as(
+    api: AsyncClient, header: dict | None
 ) -> None:
-    """The list is public, and so is the event behind it: no token, no `user_rsvped`."""
+    """The event is public, and a token that cannot be read is no reason to refuse it.
+
+    `user_rsvped` answers a question about the reader, and a reader nobody could place
+    has no answer: false, the same as the person who sent no token at all.
+    """
     event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
     await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
 
-    anonymous = (await api.get(f"/api/events/{event['id']}")).json()
+    unreadable = (await api.get(f"/api/events/{event['id']}", headers=header)).json()
 
-    assert anonymous["rsvp_count"] == 1
-    assert anonymous["user_rsvped"] is False
+    assert unreadable["rsvp_count"] == 1
+    assert unreadable["user_rsvped"] is False
 
 
 async def test_an_event_that_was_never_planned_is_not_there(api: AsyncClient) -> None:
@@ -436,6 +600,32 @@ async def test_two_people_going_are_two_people_going(api: AsyncClient) -> None:
 
     assert last.json()["rsvp_count"] == 2
     assert (await api.get(f"/api/events/{event['id']}")).json()["rsvp_count"] == 2
+
+
+async def test_a_place_can_be_taken_at_an_event_that_already_happened(api: AsyncClient) -> None:
+    """Yesterday's session can still be marked as gone to.
+
+    The listing is what hides a finished event, not a rule about who is allowed to say
+    they were there: a host who forgot to tick their own supper last week still can.
+    """
+    event = await plan(api, "yesterday", starts_at=at(-24), location_cell=VIGO)
+
+    going = await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
+
+    assert going.status_code == 200
+
+
+async def test_the_host_who_says_they_are_going_is_in_the_number(api: AsyncClient) -> None:
+    """Nothing says the one who planned it is not coming: the number counts everyone who
+    said it, the host included."""
+    event = await plan(api, "Book swap", starts_at=at(1), location_cell=VIGO)
+
+    going = await api.post(f"/api/events/{event['id']}/rsvp", headers=as_())
+
+    assert going.json()["rsvp_count"] == 1
+    assert (await api.get(f"/api/events/{event['id']}", headers=as_())).json()[
+        "user_rsvped"
+    ] is True
 
 
 @pytest.mark.parametrize(

@@ -26,22 +26,47 @@ class InvalidTimeError(ValidationError):
     """Not a time an event can be planned for."""
 
 
+def _read(value: datetime | str) -> datetime:
+    """A time as it was written, zone and all, or InvalidTimeError saying it is not a time."""
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.strip())
+        except ValueError as error:
+            raise InvalidTimeError("That is not a time Relay can read.") from error
+    return value
+
+
 def instant(value: datetime | str) -> datetime:
     """A time as an instant in UTC, or InvalidTimeError saying it is not a time.
 
-    A string is read the way a cursor is read, because it is one: `next_after` is
-    handed back as a query parameter and has to survive the trip. A datetime that
-    names no zone is read as UTC, because UTC is the zone events are stored in and a
-    start time kept in another one would compare off by its offset.
+    A string is read the way a cursor is read, because it is one: `next_from` is handed
+    back as a query parameter and has to survive the trip. A datetime that names no zone
+    is read as UTC, because UTC is the zone events are stored in and a time kept in
+    another one would compare off by its offset. An event's own start is read with
+    `placed_instant` instead, which refuses the zone-less case rather than guessing.
     """
-    if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value.strip())
-        except ValueError as error:
-            raise InvalidTimeError("That is not a time Relay can read.") from error
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+    read = _read(value)
+    if read.tzinfo is None:
+        read = read.replace(tzinfo=UTC)
+    try:
+        return read.astimezone(UTC)
+    except OverflowError as error:
+        # `0001-01-01T00:00:00+01:00` is a real time and no datetime can name it as UTC.
+        raise InvalidTimeError("That is not a time Relay can read.") from error
+
+
+def placed_instant(value: datetime | str) -> datetime:
+    """An instant that says which zone it is in, or InvalidTimeError saying it does not.
+
+    A host's half past seven is half past seven somewhere, and read without a zone it is
+    half past seven in UTC: a different evening in every other one. A phone that sends
+    local wall clock would file the event hours off and never be told, so a time that
+    does not say is refused rather than guessed at.
+    """
+    read = _read(value)
+    if read.tzinfo is None:
+        raise InvalidTimeError("An event time has to say which zone it is in.")
+    return instant(read)
 
 
 class Event(Entity):
@@ -88,8 +113,11 @@ class Event(Entity):
         where = (venue_name or "").strip()
         if len(where) > MAX_VENUE_LENGTH:
             raise ValidationError(f"A venue is named in at most {MAX_VENUE_LENGTH} characters.")
-        starts = instant(starts_at)
-        ends = instant(ends_at) if ends_at is not None else None
+        starts = placed_instant(starts_at)
+        # An end sent as blanks is a form field cleared, not a time: the event goes on
+        # for as long as it goes on, which is what not saying when reads as.
+        written_end = ends_at if not isinstance(ends_at, str) or ends_at.strip() else None
+        ends = placed_instant(written_end) if written_end is not None else None
         if ends is not None and ends <= starts:
             raise ValidationError("An event cannot end at or before it starts.")
         return cls(

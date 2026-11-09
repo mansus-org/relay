@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from relay.contexts.events.application.unit_of_work import EventsUnitOfWork
 from relay.contexts.events.domain.cells import UnknownCellError
 from relay.contexts.events.domain.event import Event
+from relay.contexts.events.domain.listing import ListingStart
 from relay.contexts.events.domain.ports import (
     CellNeighbourhood,
     CellStandard,
@@ -55,16 +56,28 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
             self._items[event.id] = event
 
     async def page_upcoming(
-        self, *, cells: Iterable[str], after: datetime | None, limit: int
+        self, *, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
+        """The same cut the table makes: at a row, not at an instant.
+
+        A page that stops in the middle of a minute has to resume in the middle of that
+        minute, so the fake compares the pair the repository does rather than the time
+        alone.
+        """
         wanted = set(cells)
-        upcoming = [
-            event
-            for event in self._items.values()
-            if event.location_cell in wanted and (after is None or event.starts_at > after)
+
+        def past(event: Event) -> bool:
+            wall = (start.at, start.after_id)
+            seen = (event.starts_at, event.id)
+            if start.after_id is None:
+                wall, seen = start.at, event.starts_at
+            return bool(seen < wall) if start.backwards else bool(seen > wall)
+
+        found = [
+            event for event in self._items.values() if event.location_cell in wanted and past(event)
         ]
-        upcoming.sort(key=lambda event: event.starts_at)
-        return upcoming[:limit]
+        found.sort(key=lambda event: (event.starts_at, event.id), reverse=start.backwards)
+        return found[:limit]
 
 
 class InMemoryRsvpRepository(InMemoryRepository[Rsvp], RsvpRepository):

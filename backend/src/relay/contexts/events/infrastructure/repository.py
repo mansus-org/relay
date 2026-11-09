@@ -1,31 +1,47 @@
 """The events repositories: SQLAlchemy statements over the events and rsvps tables."""
 
 from collections.abc import Iterable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC
 from uuid import UUID
 
-from sqlalchemy import Select, delete, func, select
+from sqlalchemy import Select, delete, func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from relay.contexts.events.domain.event import Event
+from relay.contexts.events.domain.listing import ListingStart
 from relay.contexts.events.domain.ports import EventRepository, RsvpRepository
 from relay.contexts.events.domain.rsvp import AlreadyRsvpedError, Rsvp
 from relay.contexts.events.infrastructure.models import EventModel, RsvpModel
 
 
-def upcoming_statement(cells: list[str], after: datetime | None, limit: int) -> Select:
-    """One page of what is on, soonest first.
+def upcoming_statement(cells: list[str], start: ListingStart, limit: int) -> Select:
+    """One page of what is on, in the order the listing reads it.
 
     `IN` leaves out the events that named no locality at all, which is what keeps them
-    out of every locality's list. With `after` None the page has no floor and the past
-    is on it. Built here rather than inline so the query the repository runs is the
-    query a test can put under EXPLAIN.
+    out of every locality's list. The page is cut at a row and not at an instant:
+    `(starts_at, id)` compared as a pair, because hosts pick start times and a town's
+    events all start at seven — a cut at "after seven" would drop every other event at
+    seven that did not fit on the page. Built here rather than inline so the query the
+    repository runs is the query a test can put under EXPLAIN.
     """
     statement = select(EventModel).where(EventModel.location_cell.in_(cells))
-    if after is not None:
-        statement = statement.where(EventModel.starts_at > after.astimezone(UTC))
-    return statement.order_by(EventModel.starts_at.asc()).limit(limit)
+    # The wall is bound in UTC however the marker was written. On Postgres an instant is
+    # an instant; on SQLite the column holds UTC text and a wall in another zone would
+    # be compared as the words for that other clock, and cut the page in the wrong place.
+    wall = start.at.astimezone(UTC)
+    if start.after_id is None:
+        # The first page starts at a bare wall, with no row yet to break a tie with.
+        cut, bound = EventModel.starts_at, wall
+    else:
+        cut, bound = tuple_(EventModel.starts_at, EventModel.id), (wall, start.after_id)
+    statement = statement.where(cut < bound if start.backwards else cut > bound)
+    order = (
+        (EventModel.starts_at.desc(), EventModel.id.desc())
+        if start.backwards
+        else (EventModel.starts_at.asc(), EventModel.id.asc())
+    )
+    return statement.order_by(*order).limit(limit)
 
 
 class SqlAlchemyEventRepository(EventRepository):
@@ -42,9 +58,9 @@ class SqlAlchemyEventRepository(EventRepository):
         self._session.add(EventModel.from_domain(entity))
 
     async def page_upcoming(
-        self, *, cells: Iterable[str], after: datetime | None, limit: int
+        self, *, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
-        statement = upcoming_statement(list(cells), after, limit)
+        statement = upcoming_statement(list(cells), start, limit)
         rows = (await self._session.execute(statement)).scalars()
         return [row.to_domain() for row in rows]
 

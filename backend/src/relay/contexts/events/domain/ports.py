@@ -2,10 +2,10 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
-from datetime import datetime
 from uuid import UUID
 
 from relay.contexts.events.domain.event import Event
+from relay.contexts.events.domain.listing import ListingStart
 from relay.contexts.events.domain.rsvp import Rsvp
 from relay.shared.domain import Repository
 
@@ -15,14 +15,14 @@ class EventRepository(Repository[Event, UUID]):
 
     @abstractmethod
     async def page_upcoming(
-        self, *, cells: Iterable[str], after: datetime | None, limit: int
+        self, *, cells: Iterable[str], start: ListingStart, limit: int
     ) -> list[Event]:
-        """Soonest first: events in one of `cells` starting later than `after`.
+        """The page that starts at `start`, in the order `start` reads in.
 
-        An event with no `location_cell` is in none of the cells, so it never comes
-        back. With `after` set, an event that has already started is not here either:
-        this is what is still to come. With `after` None nothing is too late, which is
-        what a reader asking for the past is asking for.
+        Forwards that is soonest first from the marker, backwards most recent first
+        before it; either way the marker names one row rather than one minute, so
+        nothing sits between two pages unseen. An event with no `location_cell` is in
+        none of the cells, so it never comes back.
         """
 
 

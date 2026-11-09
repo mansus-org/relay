@@ -11,8 +11,11 @@ from relay.shared.application import Clock
 class RsvpEvent:
     """Takes a member's place at an event.
 
-    One place per person, so a second tap is a conflict and not a quiet success: the
-    count a client reads afterwards is the count this call produced, either way.
+    One place per person, so a second tap is a conflict and not a quiet success. The
+    count is read after the commit, so it is the tally as it stands once this call has
+    landed: it includes this place, and it may include someone else who said they were
+    coming in the same moment. Two people can say they are going to the same supper at
+    once and neither count is wrong.
     """
 
     def __init__(self, uow: EventsUnitOfWork, clock: Clock) -> None:
@@ -30,5 +33,6 @@ class RsvpEvent:
                 Rsvp.go(event_id=event_id, member_id=member_id, at=self._clock.now())
             )
             await self._uow.commit()
-            # Counted after the commit: this is the tally the caller just moved.
+            # Counted after the commit, so the number is the tally once this place is in
+            # it: this call's own, and anyone else's that landed in the same moment.
             return RsvpOutcome(event=event, rsvp_count=await self._uow.rsvps.count_for(event.id))

@@ -3,8 +3,10 @@
 from datetime import UTC, datetime, timedelta, timezone
 from uuid import uuid4
 
+import pytest
+
 from relay.contexts.events.application import GetEvents
-from relay.contexts.events.domain.event import Event
+from relay.contexts.events.domain.event import Event, InvalidTimeError
 from tests.fakes.clock import FixedClock
 from tests.fakes.events import FakeEventsUnitOfWork, FixedNeighbourhood, an_event, going_to
 
@@ -101,7 +103,8 @@ async def test_a_page_is_a_page_and_not_the_whole_calendar() -> None:
     page = await read(uow)
 
     assert len(page.events) == 20
-    assert page.next_from == NOW + timedelta(hours=20)
+    assert page.next_from.at == NOW + timedelta(hours=20)
+    assert page.next_from.after_id == page.events[-1].event.id
 
 
 async def test_the_last_page_promises_no_more() -> None:
@@ -121,12 +124,38 @@ async def test_walking_the_pages_sees_every_event_once() -> None:
     )
 
     first = await read(uow)
-    second = await read(uow, from_=str(first.next_from))
+    second = await read(uow, from_=first.next_from.as_text())
 
     seen = [details.event.title for details in first.events + second.events]
     assert len(seen) == 25
     assert len(set(seen)) == 25
     assert second.next_from is None
+
+
+async def test_events_that_all_start_at_the_same_time_still_come_out_a_page_at_a_time() -> None:
+    """Hosts pick start times, and a town's events all start at seven.
+
+    Twenty of them can share one `starts_at`, and a marker that named only the instant
+    would resume after all twenty: the ones that did not fit on the page would never be
+    on any page. The marker names a row, so they come out in order like any other.
+    """
+    seven = NOW + timedelta(hours=7)
+    uow = FakeEventsUnitOfWork([an_event(f"choir {index}", starts_at=seven) for index in range(25)])
+
+    first = await read(uow)
+    second = await read(uow, from_=first.next_from.as_text())
+
+    seen = [details.event.title for details in first.events + second.events]
+    assert len(seen) == 25
+    assert len(set(seen)) == 25
+
+
+async def test_a_marker_no_page_ever_handed_out_is_refused() -> None:
+    """A `from` made up rather than handed back is the client's mistake to hear about."""
+    uow = FakeEventsUnitOfWork(planned("one"))
+
+    with pytest.raises(InvalidTimeError):
+        await read(uow, from_="2026-03-04T18:00:00Z~not-the-row-it-stopped-on")
 
 
 async def test_the_page_starts_at_the_instant_it_was_asked_for() -> None:
@@ -161,18 +190,57 @@ async def test_a_page_that_names_no_start_reads_from_now() -> None:
     assert [details.event.title for details in page.events] == ["tonight"]
 
 
-async def test_a_page_asked_for_the_past_reads_the_past() -> None:
-    """`from=past` is the only way to ask, because the default refuses to look back."""
+async def test_a_page_asked_for_the_past_reads_the_recent_past_first() -> None:
+    """`from=past` is the only way to ask, and it reads back from now, not up from the
+    first thing ever filed: the last thing that happened is what a person wants first.
+
+    What has not started is not part of the past, so the one still to come is not here.
+    """
     uow = FakeEventsUnitOfWork(
         [
             an_event("last week", starts_at=NOW - timedelta(days=7)),
+            an_event("yesterday", starts_at=NOW - timedelta(days=1)),
             an_event("tonight", starts_at=NOW + timedelta(hours=6)),
         ]
     )
 
     page = await read(uow, from_="past")
 
-    assert [details.event.title for details in page.events] == ["last week", "tonight"]
+    assert [details.event.title for details in page.events] == ["yesterday", "last week"]
+
+
+async def test_walking_the_pages_backwards_sees_the_past_once() -> None:
+    uow = FakeEventsUnitOfWork(
+        [
+            an_event(f"event {index}", starts_at=NOW - timedelta(hours=index + 1))
+            for index in range(25)
+        ]
+    )
+
+    first = await read(uow, from_="past")
+    second = await read(uow, from_=first.next_from.as_text())
+
+    seen = [details.event.title for details in first.events + second.events]
+    assert len(seen) == 25
+    assert len(set(seen)) == 25
+    assert second.next_from is None
+
+
+async def test_a_marker_from_the_past_keeps_reading_backwards() -> None:
+    """Passing `next_from` back is one string and one instruction: the direction travels
+    in it, or the second page would read forwards from where the first one stopped."""
+    uow = FakeEventsUnitOfWork(
+        [
+            an_event(f"event {index}", starts_at=NOW - timedelta(hours=index + 1))
+            for index in range(21)
+        ]
+    )
+
+    first = await read(uow, from_="past")
+    second = await read(uow, from_=first.next_from.as_text())
+
+    assert first.next_from.backwards is True
+    assert second.events[0].event.starts_at < first.events[-1].event.starts_at
 
 
 async def test_a_date_without_a_time_is_that_midnight() -> None:

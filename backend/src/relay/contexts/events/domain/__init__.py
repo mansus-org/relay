@@ -15,11 +15,12 @@ from relay.contexts.events.domain.event import (
     EventNotFoundError,
     InvalidTimeError,
     instant,
+    placed_instant,
 )
 from relay.contexts.events.domain.listing import (
     EventDetails,
     EventListingPage,
-    as_text,
+    ListingStart,
 )
 from relay.contexts.events.domain.ports import (
     CellNeighbourhood,
@@ -51,11 +52,12 @@ __all__ = [
     "EventRepository",
     "InvalidRadiusError",
     "InvalidTimeError",
+    "ListingStart",
     "NotGoingError",
     "Rsvp",
     "RsvpOutcome",
     "RsvpRepository",
     "UnknownCellError",
-    "as_text",
     "instant",
+    "placed_instant",
 ]
