@@ -3,8 +3,9 @@
 How the Python backend in [`backend/`](../backend/) is built and how to extend
 it. It replaces the old Go node; today it ships the
 skeleton, `GET /api/health`, the `location` context (postal code to H3 cell),
-the `posts` context (say something, read a locality's feed) and the
-`communities` context (groups with a locality, their feed and their joins).
+the `posts` context (say something, read a locality's feed), the
+`communities` context (groups with a locality, their feed and their joins) and
+the `events` context (what is on where and when, and saying you are going).
 Quickstart: [`backend/README.md`](../backend/README.md).
 
 Everything runs through [uv](https://docs.astral.sh/uv/): `uv sync`,
@@ -51,6 +52,10 @@ copy when adding another. `contexts/communities/` is a second one, and the one t
 look at when the new context has more than one table, or needs to read another
 context's table: its feed query reaches into `posts`' ORM model, one-way, because
 teaching `posts` about communities would point the dependency the wrong way.
+`contexts/events/` is a third, and the one to look at when the new context asks
+the same questions of H3 that `posts` does: it answers them for itself instead of
+importing `posts`' helpers, so that changing how far a listing reaches is never
+also a change to what is on.
 
 Then: add the layers to the import-linter contracts, import the ORM models in
 `migrations/env.py` (so autogenerate sees them), create a migration

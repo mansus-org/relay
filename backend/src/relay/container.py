@@ -12,6 +12,19 @@ from relay.contexts.communities.infrastructure import (
     H3CommunityReach,
     SqlAlchemyCommunitiesUnitOfWork,
 )
+from relay.contexts.events.application import (
+    CancelRsvp,
+    CreateEvent,
+    EventsUnitOfWork,
+    GetEvent,
+    GetEvents,
+    RsvpEvent,
+)
+from relay.contexts.events.infrastructure import (
+    EventsCellNeighbourhood,
+    EventsCellStandard,
+    SqlAlchemyEventsUnitOfWork,
+)
 from relay.contexts.location.application import ResolvePostalCode
 from relay.contexts.location.infrastructure import DatasetPostalCodeDirectory, H3CellEncoder
 from relay.contexts.posts.application import CreatePost, GetFeed, GetPost, PostsUnitOfWork
@@ -42,6 +55,8 @@ class Container:
         neighbourhood: H3CellNeighbourhood | None = None,
         cells: H3CellStandard | None = None,
         reach: H3CommunityReach | None = None,
+        events_neighbourhood: EventsCellNeighbourhood | None = None,
+        events_cells: EventsCellStandard | None = None,
     ) -> None:
         self.settings = settings
         self.session_factory = session_factory
@@ -54,6 +69,10 @@ class Container:
         self.cells = cells or H3CellStandard()
         # Whether one community's radius reaches a given cell. Same cut again.
         self.reach = reach or H3CommunityReach()
+        # The events context asks H3 the same two questions and answers them itself,
+        # so that changing how far a feed reaches is never also a change to what is on.
+        self.events_neighbourhood = events_neighbourhood or EventsCellNeighbourhood()
+        self.events_cells = events_cells or EventsCellStandard()
 
     def unit_of_work(self) -> UnitOfWork:
         return SqlAlchemyUnitOfWork(self.session_factory)
@@ -63,6 +82,9 @@ class Container:
 
     def communities_unit_of_work(self) -> CommunitiesUnitOfWork:
         return SqlAlchemyCommunitiesUnitOfWork(self.session_factory)
+
+    def events_unit_of_work(self) -> EventsUnitOfWork:
+        return SqlAlchemyEventsUnitOfWork(self.session_factory)
 
     def get_health(self) -> GetHealth:
         return GetHealth(version=self.settings.version)
@@ -102,3 +124,24 @@ class Container:
             cells=self.cells,
             reach=self.reach,
         )
+
+    def get_create_event(self) -> CreateEvent:
+        return CreateEvent(
+            uow=self.events_unit_of_work(), clock=self.clock, cells=self.events_cells
+        )
+
+    def get_events(self) -> GetEvents:
+        return GetEvents(
+            uow=self.events_unit_of_work(),
+            neighbourhood=self.events_neighbourhood,
+            clock=self.clock,
+        )
+
+    def get_event(self) -> GetEvent:
+        return GetEvent(uow=self.events_unit_of_work())
+
+    def get_rsvp_event(self) -> RsvpEvent:
+        return RsvpEvent(uow=self.events_unit_of_work(), clock=self.clock)
+
+    def get_cancel_rsvp(self) -> CancelRsvp:
+        return CancelRsvp(uow=self.events_unit_of_work())

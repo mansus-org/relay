@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from relay.container import Container
 from relay.contexts.communities.api import communities
+from relay.contexts.events.api import events
 from relay.contexts.location.api import location
 from relay.contexts.posts.api import posts
 from relay.shared.api import health
@@ -37,6 +38,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(location.router, prefix="/api")
     app.include_router(posts.router, prefix="/api")
     app.include_router(communities.router, prefix="/api")
+    app.include_router(events.router, prefix="/api")
     app.include_router(health.router)  # plain /health for container probes
     if settings.web_dist_dir is not None:
         app.include_router(web_router(settings.web_dist_dir))  # last: it matches every other path

@@ -17,6 +17,12 @@ layers. Today it ships the skeleton, `GET /api/health`, and three contexts.
   posts (members only), `POST /api/communities/{id}/join` joins it from a cell —
   which is refused if you are standing outside its radius. A member who joined
   under a pseudonym is named by it on that feed and nowhere else.
+- `events`: `POST /api/events` plans one, `GET /api/events?cell=<h3>&radius=10`
+  reads what is on soonest-first (`from=<date|instant|past>` moves the start),
+  `GET /api/events/{id}` reads one with how many are going, `POST
+  /api/events/{id}/rsvp` says you are going and `DELETE` the same gives the place
+  back. An event is its own row with a time and a place, filed under an H3 cell the
+  same way a post is.
 
 The architecture, testing plan and tooling are in
 [`docs/backend-development.md`](../docs/backend-development.md).
@@ -41,6 +47,8 @@ curl 'localhost:8000/api/feed?cell=883925cf43fffff&radius=10'
 # {"posts":[],"next_cursor":null} — empty until something is said there
 curl 'localhost:8000/api/communities?cell=883925cf43fffff'
 # [] — every community whose radius reaches that cell; empty until someone founds one
+curl 'localhost:8000/api/events?cell=883925cf43fffff&radius=10'
+# {"events":[],"next_from":null} — empty until someone plans something
 uv run pytest                            # unit, integration, API tests
 ```
 
