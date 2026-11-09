@@ -8,7 +8,7 @@ from relay.shared.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 async def test_upgrade_head_records_revision(migrated_engine: AsyncEngine) -> None:
     async with migrated_engine.connect() as conn:
         version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
-    assert version == "0003_communities"
+    assert version == "0004_events"
 
 
 async def test_unit_of_work_runs_a_query(migrated_engine: AsyncEngine) -> None:
