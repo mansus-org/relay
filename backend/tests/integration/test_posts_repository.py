@@ -33,6 +33,7 @@ def said(
     cell: str | None = VIGO,
     minutes: int = 0,
     community: UUID | None = None,
+    parent: UUID | None = None,
 ) -> Post:
     return Post.write(
         author_id=uuid4(),
@@ -40,6 +41,7 @@ def said(
         created_at=START + timedelta(minutes=minutes),
         location_cell=cell,
         community_id=community,
+        parent_id=parent,
     )
 
 
@@ -61,6 +63,7 @@ def everything_about(post: Post) -> dict[str, object]:
         "created_at": post.created_at,
         "location_cell": post.location_cell,
         "community_id": post.community_id,
+        "parent_id": post.parent_id,
         "moderation_status": post.moderation_status,
     }
 
@@ -120,6 +123,19 @@ async def test_a_removed_post_is_in_no_feed(uow: SqlAlchemyPostsUnitOfWork) -> N
     assert [post.body for post in found] == ["here"]
 
 
+async def test_an_answer_is_in_no_feed_although_it_shares_its_locality(
+    uow: SqlAlchemyPostsUnitOfWork,
+) -> None:
+    """A reply is filed in its parent's cell so a thread stays in one place; the feed
+    still shows the post, and not everything said under it."""
+    root = said("Is the bakery closing for good?")
+    await seed(uow, root, said("Back Monday.", parent=root.id, minutes=1))
+
+    found = await uow.posts.page_neighbouring(cells=[VIGO], before=None, limit=20)
+
+    assert [post.body for post in found] == ["Is the bakery closing for good?"]
+
+
 async def test_the_newest_post_comes_first_and_a_page_stops_where_it_should(
     uow: SqlAlchemyPostsUnitOfWork,
 ) -> None:
@@ -152,3 +168,72 @@ async def test_a_page_starts_at_the_same_instant_when_the_timestamp_comes_in_ano
     found = await uow.posts.page_neighbouring(cells=[VIGO], before=in_tokyo, limit=20)
 
     assert [post.body for post in found] == ["post 1", "post 0"]
+
+
+async def test_the_replies_under_a_post_come_back_in_the_order_they_were_said(
+    uow: SqlAlchemyPostsUnitOfWork,
+) -> None:
+    root = said("Is the bakery closing for good?")
+    await seed(
+        uow,
+        root,
+        said("Back Monday.", parent=root.id, minutes=2),
+        said("Mine closed in January.", parent=root.id, minutes=1),
+    )
+
+    replies = await uow.posts.replies_to(root.id)
+
+    assert [post.body for post in replies] == ["Mine closed in January.", "Back Monday."]
+
+
+async def test_a_reply_to_a_reply_is_under_its_own_reply(
+    uow: SqlAlchemyPostsUnitOfWork,
+) -> None:
+    root = said("Is the bakery closing for good?")
+    answer = said("Back Monday.", parent=root.id, minutes=1)
+    await seed(uow, root, answer, said("Thanks!", parent=answer.id, minutes=2))
+
+    assert [post.body for post in await uow.posts.replies_to(root.id)] == ["Back Monday."]
+    assert [post.body for post in await uow.posts.replies_to(answer.id)] == ["Thanks!"]
+
+
+async def test_a_taken_down_reply_is_not_in_the_thread(
+    uow: SqlAlchemyPostsUnitOfWork,
+) -> None:
+    root = said("Is the bakery closing for good?")
+    await seed(
+        uow,
+        root,
+        said("Keep it clean.", parent=root.id, minutes=1).removed(),
+        said("Back Monday.", parent=root.id, minutes=2),
+    )
+
+    assert [post.body for post in await uow.posts.replies_to(root.id)] == ["Back Monday."]
+
+
+async def test_a_post_that_was_never_replied_to_counts_none(
+    uow: SqlAlchemyPostsUnitOfWork,
+) -> None:
+    root = said("Is the bakery closing for good?")
+    never_said = uuid4()
+    await seed(uow, root, said("Back Monday.", parent=root.id, minutes=1))
+
+    counts = await uow.posts.count_replies([root.id, never_said])
+
+    assert counts == {root.id: 1, never_said: 0}
+
+
+async def test_how_many_replies_a_post_has_counts_only_the_ones_still_up(
+    uow: SqlAlchemyPostsUnitOfWork,
+) -> None:
+    root = said("Is the bakery closing for good?")
+    other = said("Anyone seen a grey cat?")
+    await seed(
+        uow,
+        root,
+        other,
+        said("Back Monday.", parent=root.id, minutes=1),
+        said("Keep it clean.", parent=root.id, minutes=2).removed(),
+    )
+
+    assert await uow.posts.count_replies([root.id, other.id]) == {root.id: 1, other.id: 0}

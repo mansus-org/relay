@@ -33,6 +33,9 @@ class Post(Entity):
     `location_cell` is what puts it in a locality feed and `community_id` what puts it
     in a community's. A post with neither exists but reaches no feed; that is the
     author's problem, not a reason to refuse the write.
+
+    A post that answers another one is a reply, and a reply is only a post with a
+    `parent_id`. How deep a thread is drawn is the client's business.
     """
 
     author_id: UUID
@@ -40,6 +43,7 @@ class Post(Entity):
     created_at: datetime
     location_cell: str | None = None
     community_id: UUID | None = None
+    parent_id: UUID | None = None
     moderation_status: ModerationStatus = ModerationStatus.PENDING
 
     @classmethod
@@ -51,6 +55,7 @@ class Post(Entity):
         created_at: datetime,
         location_cell: str | None = None,
         community_id: UUID | None = None,
+        parent_id: UUID | None = None,
     ) -> "Post":
         """The one way a new post is made, so nothing gets saved without being said."""
         said = body.strip()
@@ -64,7 +69,47 @@ class Post(Entity):
             created_at=created_at,
             location_cell=location_cell or None,
             community_id=community_id,
+            parent_id=parent_id,
         )
+
+    @classmethod
+    def reply_to(
+        cls,
+        parent: "Post",
+        *,
+        author_id: UUID,
+        body: str,
+        created_at: datetime,
+        location_cell: str | None = None,
+        community_id: UUID | None = None,
+    ) -> "Post":
+        """Answer a post.
+
+        A reply belongs where the post it answers does, so it inherits that post's
+        community and locality unless the writer said otherwise. A community is not
+        said otherwise: an answer that lands in another community is a different
+        conversation, and the thread it answers would never show it.
+        """
+        belonging_to = parent.community_id if community_id is None else community_id
+        if belonging_to != parent.community_id:
+            raise ValidationError("A reply belongs to the community its parent is in.")
+        return cls.write(
+            author_id=author_id,
+            body=body,
+            created_at=created_at,
+            location_cell=location_cell or parent.location_cell,
+            community_id=belonging_to,
+            parent_id=parent.id,
+        )
+
+    @property
+    def is_up(self) -> bool:
+        """Whether moderation has left the post standing.
+
+        A removed post is still stored and reaches nobody: not the feed, not a thread,
+        not a reaction.
+        """
+        return self.moderation_status is not ModerationStatus.REMOVED
 
     @property
     def shows_in_locality_feed(self) -> bool:
@@ -73,10 +118,7 @@ class Post(Entity):
         The query enforces the same two conditions in SQL; this is the rule in one
         place for everything that is not the database.
         """
-        return (
-            self.location_cell is not None
-            and self.moderation_status is not ModerationStatus.REMOVED
-        )
+        return self.location_cell is not None and self.is_up
 
     def removed(self) -> "Post":
         """This post as moderation left it: still stored, reaching nobody."""

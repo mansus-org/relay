@@ -10,7 +10,12 @@ layers. Today it ships the skeleton, `GET /api/health`, and five contexts.
   for now (`15`, `27`, `32`, `36`), and nothing about the viewer is stored.
 - `posts`: `POST /api/posts` says something, `GET /api/feed?cell=<h3>&radius=10`
   reads a locality newest-first, `GET /api/posts/{id}` reads one post. A post
-  lives in an H3 resolution-8 cell, or in no locality at all.
+  lives in an H3 resolution-8 cell, or in no locality at all. Sending a
+  `parent_id` answers a post instead of starting one, and
+  `GET /api/posts/{id}/replies` reads one level of that thread oldest-first.
+  `POST /api/posts/{id}/reactions` leaves an emoji on a post and
+  `DELETE /api/posts/{id}/reactions/{emoji}` takes it back; every read carries
+  the tallies, and a bearer token on a read only marks which of them were yours.
 - `communities`: `GET /api/communities?cell=<h3>` lists the communities whose own
   radius reaches where you are, `POST /api/communities` founds one, `GET
   /api/communities/{id}` reads one, `GET /api/communities/{id}/feed` reads its

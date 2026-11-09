@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -6,10 +10,19 @@ from relay.shared.infrastructure.database import create_session_factory
 from relay.shared.infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 
 
+def test_the_migrations_are_one_line_and_not_a_fork() -> None:
+    """Twice now two branches have each landed a migration on the same parent, and
+    alembic only says so when the second one merges. It is cheaper to say it here.
+    """
+    ini = Path(__file__).parents[2] / "alembic.ini"
+    heads = ScriptDirectory.from_config(Config(str(ini))).get_heads()
+    assert len(heads) == 1, f"the migration chain has forked: {heads}"
+
+
 async def test_upgrade_head_records_revision(migrated_engine: AsyncEngine) -> None:
     async with migrated_engine.connect() as conn:
         version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
-    assert version == "0005_auth"
+    assert version == "0005_replies_reactions"
 
 
 async def test_upgrade_creates_the_auth_tables(migrated_engine: AsyncEngine) -> None:
@@ -44,8 +57,10 @@ async def test_the_posts_table_is_there_with_the_columns_the_feed_needs(
         "community_id",
         "created_at",
         "moderation_status",
+        "parent_id",
     }
-    # Only the locality and the community are optional; everything else is required.
+    # Only the locality, the community and the post it answers are optional; the rest is
+    # required.
     assert {column["name"] for column in columns if not column["nullable"]} == {
         "id",
         "author_id",
@@ -53,6 +68,40 @@ async def test_the_posts_table_is_there_with_the_columns_the_feed_needs(
         "created_at",
         "moderation_status",
     }
+
+
+async def test_the_thread_index_walks_the_parent_then_the_clock(
+    migrated_engine: AsyncEngine,
+) -> None:
+    """Opening a thread is one parent, then its replies in the order they were said."""
+    async with migrated_engine.connect() as conn:
+        indexes = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_indexes("posts"))
+
+    thread = next(index for index in indexes if index["name"] == "ix_posts_parent_id_created_at")
+    assert thread["column_names"] == ["parent_id", "created_at"]
+
+
+async def test_the_reactions_table_holds_one_emoji_per_person_per_post(
+    migrated_engine: AsyncEngine,
+) -> None:
+    async with migrated_engine.connect() as conn:
+        columns = await conn.run_sync(
+            lambda sync_conn: inspect(sync_conn).get_columns("post_reactions")
+        )
+        constraints = await conn.run_sync(
+            lambda sync_conn: inspect(sync_conn).get_unique_constraints("post_reactions")
+        )
+
+    assert {column["name"] for column in columns} == {
+        "id",
+        "post_id",
+        "user_id",
+        "emoji",
+        "created_at",
+    }
+    assert all(not column["nullable"] for column in columns)
+    # The one rule the table exists to hold: one person, one emoji, one post.
+    assert [sorted(one["column_names"]) for one in constraints] == [["emoji", "post_id", "user_id"]]
 
 
 async def test_the_feed_index_walks_the_cell_then_the_clock(

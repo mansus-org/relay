@@ -6,11 +6,12 @@ from datetime import datetime
 from uuid import UUID
 
 from relay.contexts.posts.domain.post import Post
+from relay.contexts.posts.domain.reaction import Reaction, ReactionTally
 from relay.shared.domain import Repository
 
 
 class PostRepository(Repository[Post, UUID]):
-    """Posts by id, and the newest ones still up around a cell."""
+    """Posts by id, the newest ones still up around a cell, and the replies under one."""
 
     @abstractmethod
     async def page_neighbouring(
@@ -19,6 +20,51 @@ class PostRepository(Repository[Post, UUID]):
         """Newest first: posts inside one of `cells`, not removed, older than `before`.
 
         A post with no `location_cell` is in none of the cells and so never comes back.
+        """
+
+    @abstractmethod
+    async def replies_to(self, post_id: UUID) -> list[Post]:
+        """Oldest first: the posts said in reply to this one.
+
+        One level only - a reply to a reply is another call away, which is what lets
+        the client draw a thread as deep as it likes. A removed reply is not here.
+        """
+
+    @abstractmethod
+    async def count_replies(self, post_ids: Iterable[UUID]) -> dict[UUID, int]:
+        """How many replies each of these posts has, removed ones not counted.
+
+        Every post asked for is answered; one nobody answered counts none.
+        """
+
+
+class ReactionRepository(ABC):
+    """The emoji people leave on posts: one per person, per emoji, per post."""
+
+    @abstractmethod
+    async def add(self, reaction: Reaction) -> None:
+        """Put one person's emoji on a post.
+
+        The same person, the same emoji, the same post twice is refused: it is one
+        opinion said twice, not two of them.
+        """
+
+    @abstractmethod
+    async def get(self, *, post_id: UUID, user_id: UUID, emoji: str) -> Reaction | None:
+        """That person's reaction with that emoji on that post, if they left one."""
+
+    @abstractmethod
+    async def remove(self, *, post_id: UUID, user_id: UUID, emoji: str) -> bool:
+        """Take that reaction back. False when there was none to take."""
+
+    @abstractmethod
+    async def tallies(
+        self, post_ids: Iterable[UUID], *, viewer: UUID | None = None
+    ) -> dict[UUID, tuple[ReactionTally, ...]]:
+        """Every emoji on each of these posts, counted, the most-used first.
+
+        `viewer` is who is reading: an emoji they left comes back marked. Every post
+        asked for is answered; one nobody reacted to has no emoji on it.
         """
 
 

@@ -167,10 +167,21 @@ async def test_reading_the_next_page_stays_fast(
     assert elapsed < CEILING_S, f"a paged feed took {elapsed * 1000:.0f} ms over 11,000 posts"
 
 
-async def test_the_feed_query_walks_the_index_it_was_given(
+async def test_the_feed_query_walks_an_index_and_not_the_table(
     migrated_engine: AsyncEngine, ten_thousand_posts_over_a_region: None
 ) -> None:
-    """The index the migration built had better be the one the feed reads through."""
+    """The feed reads through an index; which one is the planner's business.
+
+    Since answers arrived the feed also leaves them out, so the query can be reached
+    through the locality or through the posts that answer nothing, and which is cheaper
+    depends on how much has been said where the reader is standing. What neither database
+    may fall back to is reading the table: that is what the indexes are for.
+    """
     plan = await plan_for(migrated_engine, NEIGHBOURHOOD)
 
-    assert "ix_posts_location_cell_created_at" in plan, plan
+    if migrated_engine.dialect.name == "postgresql":
+        assert "Seq Scan on posts" not in plan, plan
+        assert "Index Scan" in plan or "Bitmap Index Scan" in plan, plan
+    else:
+        assert "SCAN posts" not in plan, plan
+        assert "SEARCH posts USING INDEX" in plan, plan
