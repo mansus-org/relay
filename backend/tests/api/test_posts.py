@@ -1,6 +1,7 @@
 """The endpoints the mobile screens call: say something, read your locality, look one up,
 reply to one, and leave an emoji on it."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import datetime
 from urllib.parse import quote
@@ -377,6 +378,15 @@ async def test_a_reply_is_said_where_the_post_it_answers_was(api: AsyncClient) -
     assert reply["location_cell"] == VIGO
 
 
+async def test_a_reply_that_says_no_locality_is_said_where_its_parent_was(api: AsyncClient) -> None:
+    """An empty locality is not a different one: the answers stay in the town asked in."""
+    root = await say(api, "Is the bakery closing for good?", location_cell=VIGO)
+
+    reply = await reply_to(api, root["id"], "Back Monday.", location_cell="")
+
+    assert reply["location_cell"] == VIGO
+
+
 async def test_a_reply_said_elsewhere_is_still_under_its_own_post(api: AsyncClient) -> None:
     """Answering from another town does not move the answer to that town's thread."""
     root = await say(api, "Is the bakery closing for good?", location_cell=VIGO)
@@ -395,6 +405,20 @@ async def test_a_reply_cannot_move_a_thread_into_another_community(api: AsyncCli
     response = await api.post(
         "/api/posts",
         json={"body": "Over here instead.", "parent_id": root["id"], "community_id": str(uuid4())},
+        headers=as_(),
+    )
+
+    assert response.status_code == 400
+    assert await thread_of(api, root["id"]) == []
+
+
+async def test_a_reply_cannot_give_a_thread_a_community_it_never_had(api: AsyncClient) -> None:
+    """One community per thread, and a thread with none is still a thread."""
+    root = await say(api, "Is the bakery closing for good?", location_cell=VIGO)
+
+    response = await api.post(
+        "/api/posts",
+        json={"body": "A club now?", "parent_id": root["id"], "community_id": str(uuid4())},
         headers=as_(),
     )
 
@@ -504,6 +528,16 @@ async def test_a_post_that_was_never_said_has_no_thread(api: AsyncClient) -> Non
     assert (await api.get(f"/api/posts/{uuid4()}/replies")).status_code == 404
 
 
+async def test_a_post_with_nothing_said_under_it_has_an_empty_thread(api: AsyncClient) -> None:
+    """A question nobody has answered is an empty list, not a missing thing."""
+    root = await say(api, "Is the bakery closing for good?", location_cell=VIGO)
+
+    response = await api.get(f"/api/posts/{root['id']}/replies")
+
+    assert response.status_code == 200
+    assert response.json() == {"posts": []}
+
+
 # Reacting.
 
 
@@ -606,6 +640,38 @@ async def test_someone_elses_emoji_is_not_theirs_to_take(api: AsyncClient) -> No
     ]
 
 
+async def test_taking_an_emoji_off_a_post_that_was_never_said_is_reported(api: AsyncClient) -> None:
+    assert (await take_back(api, str(uuid4()), "❤️")).status_code == 404
+
+
+async def test_an_emoji_comes_off_a_post_moderation_took_down(
+    api: AsyncClient, migrated_engine: AsyncEngine
+) -> None:
+    """The post left the feed, but what people left on it is theirs to take back.
+
+    Reacting to it is refused, and taking back is not: refusing this would trap a
+    reaction on a post its author can no longer see, for a reason the reader did nothing
+    to deserve.
+    """
+    post = await say(api, "Rude, apparently.", location_cell=VIGO)
+    await react(api, post["id"], "❤️")
+    await take_down(migrated_engine, post["id"])
+
+    assert (await take_back(api, post["id"], "❤️")).status_code == 204
+
+
+async def test_two_people_tapping_the_same_emoji_at_once_leave_one(api: AsyncClient) -> None:
+    """A double tap sends two requests, and neither of them is allowed to be an error."""
+    post = await say(api, "The bakery on the corner is gone.", location_cell=VIGO)
+
+    first, second = await asyncio.gather(react(api, post["id"], "❤️"), react(api, post["id"], "❤️"))
+
+    assert sorted([first.status_code, second.status_code]) == [201, 409]
+    assert await shown_reactions(api, post["id"], who=AUTHOR) == [
+        {"emoji": "❤️", "count": 1, "mine": True}
+    ]
+
+
 async def test_reacting_needs_someone_to_react_as(api: AsyncClient) -> None:
     post = await say(api, "The bakery on the corner is gone.", location_cell=VIGO)
 
@@ -646,6 +712,19 @@ async def test_the_reader_sees_their_own_emoji_marked(api: AsyncClient) -> None:
     assert await shown_reactions(api, post["id"], who=uuid4()) == [
         {"emoji": "👍", "count": 1, "mine": False}
     ]
+
+
+async def test_a_reader_who_is_nobody_has_nothing_marked_as_theirs(api: AsyncClient) -> None:
+    """A read stays a read: a token this placeholder cannot read loses the marks, not the post."""
+    post = await say(api, "The bakery on the corner is gone.", location_cell=VIGO)
+    await react(api, post["id"], "👍", who=READER)
+
+    shown = await api.get(
+        f"/api/posts/{post['id']}", headers={"Authorization": "Bearer not-a-user-id"}
+    )
+
+    assert shown.status_code == 200
+    assert shown.json()["reactions"] == [{"emoji": "👍", "count": 1, "mine": False}]
 
 
 async def test_the_reactions_show_up_in_the_feed(api: AsyncClient) -> None:

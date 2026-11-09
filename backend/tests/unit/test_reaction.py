@@ -44,6 +44,21 @@ def test_the_spaces_around_an_emoji_are_not_part_of_it() -> None:
     assert left_on("  👍  ").emoji == "👍"
 
 
+def test_an_emoji_written_with_its_marks_apart_is_the_same_emoji() -> None:
+    """One form is kept, so the same thing typed two ways is one opinion, not two."""
+    assert left_on("a\u0301").emoji == left_on("á").emoji
+
+
+def test_the_selector_that_chooses_a_picture_over_a_glyph_is_kept_as_sent() -> None:
+    """Kept on purpose, and the cost is written down.
+
+    Stripping it would fold a picture into the line drawing underneath it and send that
+    back to be drawn, so the price is that the same emoji sent both ways counts twice.
+    A client that offers an emoji offers it in one form.
+    """
+    assert left_on("❤️").emoji == "❤️"
+
+
 def test_one_character_over_is_refused_with_the_limit_in_the_message() -> None:
     with pytest.raises(ValidationError, match=str(MAX_EMOJI_LENGTH)):
         left_on("a" * (MAX_EMOJI_LENGTH + 1))

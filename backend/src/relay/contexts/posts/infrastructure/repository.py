@@ -7,11 +7,12 @@ from uuid import UUID
 
 from sqlalchemy import Select, case, delete, func, select
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from relay.contexts.posts.domain.ports import PostRepository, ReactionRepository
 from relay.contexts.posts.domain.post import ModerationStatus, Post
-from relay.contexts.posts.domain.reaction import Reaction, ReactionTally
+from relay.contexts.posts.domain.reaction import AlreadyReactedError, Reaction, ReactionTally
 from relay.contexts.posts.infrastructure.models import PostModel, ReactionModel
 
 
@@ -115,6 +116,19 @@ class SqlAlchemyPostRepository(PostRepository):
         return {post_id: counted.get(post_id, 0) for post_id in asked}
 
 
+def _is_one_reaction_already(error: IntegrityError) -> bool:
+    """Whether a broken constraint is the one that says one person, one emoji, once.
+
+    Only that one is translated: any other integrity error is a bug and has to stay
+    one. The two databases name it differently - Postgres names the constraint, SQLite
+    lists the columns - so both spellings are checked.
+    """
+    said = str(error.orig)
+    return "uq_post_reactions_post_user_emoji" in said or (
+        "post_reactions.post_id, post_reactions.user_id, post_reactions.emoji" in said
+    )
+
+
 class SqlAlchemyReactionRepository(ReactionRepository):
     """Reactions in the same session as the unit of work that handed it over."""
 
@@ -123,6 +137,19 @@ class SqlAlchemyReactionRepository(ReactionRepository):
 
     async def add(self, reaction: Reaction) -> None:
         self._session.add(ReactionModel.from_domain(reaction))
+        try:
+            # Written now rather than at commit, so the unique key gets the chance to
+            # say what it knows. A use case checks for the reaction first and then
+            # writes, and two taps of the same emoji a heartbeat apart both pass that
+            # check; the one that arrives second has to be told it already happened,
+            # not error out on a constraint nobody translated.
+            await self._session.flush()
+        except IntegrityError as error:
+            if not _is_one_reaction_already(error):
+                raise
+            raise AlreadyReactedError(
+                f"{reaction.user_id} has already reacted with {reaction.emoji}."
+            ) from error
 
     async def get(self, *, post_id: UUID, user_id: UUID, emoji: str) -> Reaction | None:
         statement = select(ReactionModel).where(

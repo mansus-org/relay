@@ -1,5 +1,6 @@
 """A reaction: one person's one emoji on one post."""
 
+import unicodedata
 from datetime import datetime
 from uuid import UUID
 
@@ -9,6 +10,18 @@ from relay.shared.domain import ConflictError, Entity, NotFoundError, Validation
 #: joined with zero-width joiners, a skin tone, a keycap - stay well under this,
 #: and everything above it is a word pretending to be an emoji.
 MAX_EMOJI_LENGTH = 16
+
+
+def as_one_emoji(emoji: str) -> str:
+    """An emoji in the one form the server counts it in, however it was typed.
+
+    Composed, so a sequence written with combining marks is the same emoji as the same
+    sequence written whole. What is deliberately not touched is the variation selector
+    that picks picture over text glyph: dropping it would fold "❤️" into "❤" and draw a
+    line where someone chose a picture, so the same emoji sent in both forms counts
+    twice. A client that offers an emoji offers it in one form.
+    """
+    return unicodedata.normalize("NFC", emoji)
 
 
 class AlreadyReactedError(ConflictError):
@@ -33,8 +46,12 @@ class Reaction(Entity):
 
     @classmethod
     def given(cls, *, post_id: UUID, user_id: UUID, emoji: str, created_at: datetime) -> "Reaction":
-        """React. The only way a reaction is made."""
-        said = emoji.strip()
+        """React. The only way a reaction is made.
+
+        What is stored is the emoji in the one form the server counts it in, so a
+        reaction can be taken back with the emoji that came back in the response.
+        """
+        said = as_one_emoji(emoji.strip())
         if not said:
             raise ValidationError("A reaction needs an emoji.")
         if len(said) > MAX_EMOJI_LENGTH:

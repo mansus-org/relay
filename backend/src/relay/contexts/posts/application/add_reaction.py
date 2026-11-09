@@ -36,4 +36,10 @@ class AddReaction:
             await self._uow.reactions.add(reaction)
             await self._uow.commit()
             counted = await self._uow.reactions.tallies([post_id], viewer=user_id)
-        return next(tally for tally in counted[post_id] if tally.emoji == reaction.emoji)
+        left = next((tally for tally in counted[post_id] if tally.emoji == reaction.emoji), None)
+        if left is None:
+            # The emoji went in and the count came back without it, which can only mean
+            # it was taken off again in between. That does not make this request wrong -
+            # it is reported as the one it was, rather than crashing on a `next`.
+            return ReactionTally(emoji=reaction.emoji, count=1, user_reacted=True)
+        return left

@@ -5,11 +5,10 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from relay.contexts.posts.domain.post import Post
-from relay.contexts.posts.domain.reaction import Reaction
+from relay.contexts.posts.domain.reaction import AlreadyReactedError, Reaction
 from relay.contexts.posts.infrastructure.unit_of_work import SqlAlchemyPostsUnitOfWork
 from relay.shared.infrastructure.database import create_session_factory
 
@@ -59,14 +58,18 @@ async def test_who_has_not_reacted_has_left_nothing(uow: SqlAlchemyPostsUnitOfWo
 async def test_the_same_emoji_twice_from_one_person_cannot_be_stored(
     uow: SqlAlchemyPostsUnitOfWork,
 ) -> None:
-    """The database holds the rule, so two writers at once cannot both win."""
+    """The database holds the rule, so two writers at once cannot both win.
+
+    The use case looks before it writes, but looking and writing are two moments and a
+    double tap lands in both. The one that arrives second is answered with the rule,
+    not with a constraint nobody translated.
+    """
     post, person = await a_post(uow), uuid4()
 
     await uow.reactions.add(left_on(post, person, "❤️"))
     await uow.commit()
-    with pytest.raises(IntegrityError):
+    with pytest.raises(AlreadyReactedError):
         await uow.reactions.add(left_on(post, person, "❤️", minutes=1))
-        await uow.commit()
 
 
 async def test_a_different_emoji_from_the_same_person_is_a_different_row(
