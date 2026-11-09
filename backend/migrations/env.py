@@ -4,6 +4,9 @@ from alembic import context
 from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+# Every context's tables hang off Base.metadata, and importing them is how autogenerate
+# gets to see them. A new context with a table adds a line here.
+from relay.contexts.posts.infrastructure import models  # noqa: F401
 from relay.shared.config import Settings
 from relay.shared.infrastructure.database import Base
 
