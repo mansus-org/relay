@@ -1,5 +1,6 @@
 import {
   DEFAULT_SERVER_URL,
+  serverHost,
   type CellEncoder,
   type CommunityDetails,
   type LatLng,
@@ -12,6 +13,10 @@ import {
   err,
   ok,
   type AuthError,
+  type NodeProbe,
+  type NodeTest,
+  type Profile,
+  type ProfileRepository,
   type AuthRepository,
   type AuthTokens,
   type RefreshedSession,
@@ -57,17 +62,45 @@ export const makeMemoryServerUrlStore = (initial = DEFAULT_SERVER_URL): ServerUr
 
 type Scripted<T> = Result<T, AuthError> | (() => Promise<Result<T, AuthError>>)
 
+const answer = <T>(scripted: Scripted<T> | undefined) =>
+  typeof scripted === 'function' ? scripted() : Promise.resolve(scripted ?? err<AuthError>('unexpected'))
+
 /** An AuthRepository answering from scripted results; records the calls it receives. */
 export const makeFakeAuthRepository = (script: { login?: Scripted<Session>; register?: Scripted<Session>; refresh?: Scripted<RefreshedSession> }) => {
   const calls = { login: [] as unknown[], register: [] as unknown[], refresh: [] as string[] }
-  const answer = <T>(scripted: Scripted<T> | undefined) =>
-    typeof scripted === 'function' ? scripted() : Promise.resolve(scripted ?? err<AuthError>('unexpected'))
   const repository: AuthRepository = {
     login: (credentials) => (calls.login.push(credentials), answer(script.login)),
     register: (registration) => (calls.register.push(registration), answer(script.register)),
     refresh: (refreshToken) => (calls.refresh.push(refreshToken), answer(script.refresh)),
   }
   return { repository, calls }
+}
+
+/** A ProfileRepository answering from scripted results; records the names it was asked for. */
+export const makeFakeProfileRepository = (script: { read?: Scripted<Profile>; update?: Scripted<Profile> } = {}) => {
+  const calls = { read: 0, update: [] as string[] }
+  const repository: ProfileRepository = {
+    read: () => (calls.read += 1, answer(script.read)),
+    update: (displayName) => (calls.update.push(displayName), answer(script.update)),
+  }
+  return { repository, calls }
+}
+
+export const makeNodeTest = (host: string, overrides: Partial<NodeTest> = {}): NodeTest => ({
+  host,
+  reachable: true,
+  version: '0.1.0',
+  reason: null,
+  ...overrides,
+})
+
+/** A NodeProbe that answers from a map of URLs; a URL it was not told about does not answer. */
+export const makeFakeNodeProbe = (answers: Record<string, NodeTest> = {}) => {
+  const calls: string[] = []
+  const probe: NodeProbe = {
+    check: async (url) => (calls.push(url), answers[url] ?? makeNodeTest(serverHost(url), { reachable: false, version: null, reason: 'no answer from that server' })),
+  }
+  return { probe, calls }
 }
 
 export const makePost = (id: string, overrides: Partial<Post> = {}): Post => ({

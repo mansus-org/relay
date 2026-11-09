@@ -21,7 +21,7 @@ import { useFeed, usesPostalCode } from '../../src/presentation/use-feed'
 
 export default function Feed() {
   const router = useRouter()
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   // A stranger reads the feed of whatever place the address names, so a place can be shared.
   const { code } = useLocalSearchParams<{ code?: string }>()
   const {
@@ -103,9 +103,11 @@ export default function Feed() {
                   Communities
                 </MonoLabel>
               </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={() => void logout()} hitSlop={8}>
-                <Avatar name={user?.name ?? '?'} seed={user?.id} size={30} />
-              </Pressable>
+              <Link href="/settings" asChild accessibilityRole="link" accessibilityLabel="Settings">
+                <Pressable hitSlop={8}>
+                  <Avatar name={user?.name ?? '?'} seed={user?.id} size={30} />
+                </Pressable>
+              </Link>
             </>
           ) : (
             <Link href="/login" accessibilityRole="link" style={styles.navLink}>

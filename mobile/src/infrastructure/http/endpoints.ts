@@ -1,7 +1,9 @@
-// Relative to the API base URL (<server>/api). The backend endpoints do not exist yet.
+// Relative to the API base URL (<server>/api).
 export const LOGIN_PATH = '/auth/login'
 export const REGISTER_PATH = '/auth/register'
 export const REFRESH_PATH = '/auth/refresh'
+/** PATCH with the bearer token: the account that token belongs to. */
+export const PROFILE_PATH = '/auth/me'
 
 // Feed, posts and live stream. Assumed contract; the backend endpoints do not exist yet.
 export const FEED_PATH = '/feed'

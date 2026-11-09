@@ -16,6 +16,11 @@ import type { makeLogin } from './login'
 import type { makeRegister } from './register'
 import type { makeLogout } from './logout'
 import type { makeRestoreSession } from './restore-session'
+import type { makeGetProfile } from './get-profile'
+import type { makeUpdateProfile } from './update-profile'
+import type { makeSwitchNode } from './switch-node'
+import type { makeReadServerUrl } from './read-server-url'
+import type { makeTestNode } from './test-node'
 
 export {
   makeCreateCommunity,
@@ -44,6 +49,11 @@ export { makeLogout } from './logout'
 export { makeRegister, type RegisterInput } from './register'
 export { makeRefreshSession } from './refresh-session'
 export { makeRestoreSession } from './restore-session'
+export { makeGetProfile } from './get-profile'
+export { makeUpdateProfile } from './update-profile'
+export { makeSwitchNode } from './switch-node'
+export { makeReadServerUrl } from './read-server-url'
+export { makeTestNode } from './test-node'
 
 /** Everything the presentation layer may call; built once by the composition root. */
 export type UseCases = {
@@ -71,5 +81,13 @@ export type UseCases = {
   readonly rsvpToEvent: ReturnType<typeof makeRsvpToEvent>
   readonly cancelRsvp: ReturnType<typeof makeCancelRsvp>
   readonly createEvent: ReturnType<typeof makeCreateEvent>
+  /** Whose account this is, on the node it lives on. */
+  readonly getProfile: ReturnType<typeof makeGetProfile>
+  readonly updateProfile: ReturnType<typeof makeUpdateProfile>
+  /** One health call to a node, before anything is written. */
+  readonly testNode: ReturnType<typeof makeTestNode>
+  readonly switchNode: ReturnType<typeof makeSwitchNode>
+  /** The node this app points at; the built-in one until someone moves it. */
+  readonly readServerUrl: ReturnType<typeof makeReadServerUrl>
   readonly sessionEvents: SessionEvents
 }

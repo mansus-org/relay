@@ -7,6 +7,7 @@ from relay.contexts.auth.application.read_authenticated_user import ReadAuthenti
 from relay.contexts.auth.application.refresh_access_token import RefreshAccessToken
 from relay.contexts.auth.application.register_with_invite import RegisterWithInvite, Registration
 from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
+from relay.contexts.auth.application.update_display_name import UpdateDisplayName
 
 __all__ = [
     "AuthUnitOfWork",
@@ -17,4 +18,5 @@ __all__ = [
     "RefreshAccessToken",
     "RegisterWithInvite",
     "Registration",
+    "UpdateDisplayName",
 ]

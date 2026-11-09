@@ -11,6 +11,7 @@ from relay.contexts.auth.application import (
     Login,
     RefreshAccessToken,
     RegisterWithInvite,
+    UpdateDisplayName,
 )
 from relay.contexts.auth.domain.errors import (
     InvalidCredentialsError,
@@ -74,6 +75,26 @@ class RefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=1, max_length=_MAX_TOKEN_CHARS)
 
 
+class ProfileUpdateRequest(BaseModel):
+    """What you are allowed to change about your own account. One field, for now.
+
+    The length cap here is looser than the one in the domain on purpose, so that a name
+    too long to keep is refused with the sentence that says why, not with a schema error.
+    """
+
+    display_name: str = Field(
+        min_length=1,
+        max_length=_MAX_DISPLAY_NAME_CHARS,
+        description="What to call you, up to 60 characters.",
+    )
+
+    @field_validator("display_name")
+    @classmethod
+    def _no_stray_space(cls, value: str) -> str:
+        """Nobody ever meant a space at either end of a name; empty is the domain's call."""
+        return value.strip()
+
+
 class TokenResponse(BaseModel):
     """Both halves of a session. Send the access token with every call; keep the other."""
 
@@ -123,6 +144,12 @@ def get_refresh_access_token(
     container: Annotated[Container, Depends(get_container)],
 ) -> RefreshAccessToken:
     return container.get_refresh_access_token()
+
+
+def get_update_display_name(
+    container: Annotated[Container, Depends(get_container)],
+) -> UpdateDisplayName:
+    return container.get_update_display_name()
 
 
 @router.post(
@@ -214,3 +241,29 @@ async def refresh(
 )
 async def me(user: CurrentUser) -> UserResponse:
     return UserResponse.from_domain(user)
+
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    summary="Change what Relay calls you",
+    description=(
+        "Only the display name is yours to change. The handle you log in with stays put, "
+        "because everything already written about you leans on it."
+    ),
+    responses={
+        400: {"description": "The display name breaks a rule"},
+        401: {"description": "No bearer token, or not one we signed"},
+        404: {"description": "The account behind that token is gone"},
+    },
+)
+async def update_profile(
+    body: ProfileUpdateRequest,
+    user: CurrentUser,
+    use_case: Annotated[UpdateDisplayName, Depends(get_update_display_name)],
+) -> UserResponse:
+    try:
+        updated = await use_case.execute(user_id=user.require_id(), display_name=body.display_name)
+    except InvalidDisplayNameError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    return UserResponse.from_domain(updated)

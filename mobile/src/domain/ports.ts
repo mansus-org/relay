@@ -1,10 +1,12 @@
 import type { AuthError } from './auth-error'
+import type { NodeTest } from './node-test'
 import type { AuthTokens, Credentials, RefreshedSession, Registration, Session } from './session'
 import type { ApiError, Community, FeedPage, FeedQuery, LatLng, LocationStatus, NewPost, Post } from './post'
 import type { Result } from './result'
 import type { CommunityDetails, CommunityError, CommunityFeedQuery, JoinRequest, NewCommunity } from './community'
 import type { Event, EventDetail, EventError, EventPage, NewEvent } from './event'
 import type { PostalArea, PostalCodeError } from './postal-code'
+import type { Profile } from './user'
 
 export type AuthRepository = {
   readonly login: (credentials: Credentials) => Promise<Result<Session, AuthError>>
@@ -30,6 +32,18 @@ export type ServerUrlReader = {
 
 export type ServerUrlWriter = {
   readonly set: (url: string) => Promise<void>
+}
+
+export type ProfileRepository = {
+  /** Whose account the stored bearer token belongs to. */
+  readonly read: () => Promise<Result<Profile, AuthError>>
+  /** 'invalid-name' when the server refuses the name; 'gone' when the account is no longer there. */
+  readonly update: (displayName: string) => Promise<Result<Profile, AuthError>>
+}
+
+export type NodeProbe = {
+  /** One health call to one node. Never throws: what went wrong comes back in the answer. */
+  readonly check: (url: string) => Promise<NodeTest>
 }
 
 export type SessionEvents = {
