@@ -9,6 +9,7 @@ from relay.contexts.posts.domain.cells import UnknownCellError
 from relay.contexts.posts.domain.ports import (
     CellNeighbourhood,
     CellStandard,
+    LiveFeed,
     PostRepository,
     ReactionRepository,
 )
@@ -167,3 +168,20 @@ class FakePostsUnitOfWork(FakeUnitOfWork, PostsUnitOfWork):
         super().__init__()
         self.posts = InMemoryPostRepository(posts)
         self.reactions = InMemoryReactionRepository(reactions)
+
+
+class RecordingLiveFeed(LiveFeed):
+    """What a locality was told about, and whether the post was saved at the time.
+
+    The second half is the point: a stream that hears about a post before it is in the
+    database hands out a post that a read straight afterwards will not find.
+    """
+
+    def __init__(self, uow: FakePostsUnitOfWork) -> None:
+        self._uow = uow
+        self.announced: list[Post] = []
+        self.saved: list[bool] = []
+
+    def announce(self, post: Post) -> None:
+        self.announced.append(post)
+        self.saved.append(self._uow.committed)

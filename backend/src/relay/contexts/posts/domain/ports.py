@@ -86,3 +86,23 @@ class CellStandard(ABC):
         a cell, or one at a resolution no feed is served at. Saving either would hand
         the writer a post no locality can ever show.
         """
+
+
+class LiveFeed(ABC):
+    """Whoever is reading a locality right now, told about a post the moment it is said."""
+
+    @abstractmethod
+    def announce(self, post: Post) -> None:
+        """Tell every reader watching where `post` was said that it now exists.
+
+        Called once the post is saved, and never waits: a reader whose signal is bad
+        must not be able to hold up the person who just said something. A post with no
+        locality is in no locality, so it reaches nobody.
+        """
+
+
+class NoLiveFeed(LiveFeed):
+    """A locality nobody is watching: the default when nothing is wired up to listen."""
+
+    def announce(self, post: Post) -> None:
+        """Nothing to tell, because nobody is there to be told."""

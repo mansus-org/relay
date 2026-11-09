@@ -6,6 +6,12 @@
 #
 # Because Relay uses path-based addressing, one host and one certificate is
 # enough for every site on the node — no wildcard host is required.
+#
+# The live stream (/api/stream) needs nothing here. ingress-nginx buffers
+# responses unless the backend tells it not to, and Relay sends
+# `X-Accel-Buffering: no` on every stream; and it closes a connection that has
+# sent nothing for proxy-read-timeout (60s by default), which the 30s stream
+# keepalive stays under. Shorten STREAM_KEEPALIVE_SECONDS if you lower that.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

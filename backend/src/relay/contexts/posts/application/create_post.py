@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from relay.contexts.posts.application.unit_of_work import PostsUnitOfWork
-from relay.contexts.posts.domain.ports import CellStandard
+from relay.contexts.posts.domain.ports import CellStandard, LiveFeed, NoLiveFeed
 from relay.contexts.posts.domain.post import Post, PostNotFoundError
 from relay.shared.application import Clock
 
@@ -11,10 +11,19 @@ from relay.shared.application import Clock
 class CreatePost:
     """Says a post and saves it. The clock is injected so a test knows when it was said."""
 
-    def __init__(self, uow: PostsUnitOfWork, clock: Clock, cells: CellStandard) -> None:
+    def __init__(
+        self,
+        uow: PostsUnitOfWork,
+        clock: Clock,
+        cells: CellStandard,
+        live_feed: LiveFeed | None = None,
+    ) -> None:
         self._uow = uow
         self._clock = clock
         self._cells = cells
+        # Optional, because a post is a post whether or not anyone is out there reading
+        # one at this moment.
+        self._live_feed = live_feed or NoLiveFeed()
 
     async def execute(
         self,
@@ -54,6 +63,10 @@ class CreatePost:
                 )
             await self._uow.posts.add(post)
             await self._uow.commit()
+        # Outside the transaction, so a post that was never saved is never announced, and
+        # with nothing awaited between the commit and here, so nobody is ever told about a
+        # post before it is in the database and can be read back.
+        self._live_feed.announce(post)
         return post
 
     def _filed_under(self, cell: str | None) -> str | None:
