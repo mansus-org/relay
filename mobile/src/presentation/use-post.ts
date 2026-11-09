@@ -72,14 +72,25 @@ export function useThread(postId: string) {
 
   useEffect(() => {
     let cancelled = false
-    void loadThread(postId).then((result) => {
+    void loadThread(postId).then(async (result) => {
       if (cancelled) return
-      setState((s) => ({ ...s, loaded: true, failed: !result.ok, entries: result.ok ? threadOf(result.value) : s.entries }))
+      if (!result.ok) return setState((s) => ({ ...s, loaded: true, failed: true }))
+      const post = result.value
+      setState((s) => ({ ...s, loaded: true, failed: false, entries: threadOf(post) }))
+      if (post.replyCount === 0) return
+      // The first level comes with the thread; deeper levels are asked for one at a time.
+      const replies = await loadReplies(postId)
+      if (cancelled) return
+      setState((s) => ({
+        ...s,
+        entries: replies.ok ? insertReplies(s.entries, postId, replies.value) : s.entries,
+        problem: replies.ok ? s.problem : REPLIES_FAILED,
+      }))
     })
     return () => {
       cancelled = true
     }
-  }, [loadThread, postId])
+  }, [loadReplies, loadThread, postId])
 
   /** Shows one level of replies under a post, or hides them again. */
   const toggleReplies = useCallback(
@@ -124,12 +135,13 @@ export function useThread(postId: string) {
   const sendReply = useCallback(
     async (body: string): Promise<boolean> => {
       const target = state.entries.find((e) => e.post.id === state.replyingToId) ?? state.entries[0]
-      if (!target || state.sending || !user) return false
+      const text = body.trim()
+      if (!target || state.sending || !user || !text) return false
       const tempId = `pending-${++pending.current}`
       const optimistic: Post = {
         id: tempId,
         author: user,
-        body: body.trim(),
+        body: text,
         createdAt: new Date().toISOString(),
         locationCell: target.post.locationCell,
         parentId: target.post.id,
@@ -143,7 +155,7 @@ export function useThread(postId: string) {
         problem: null,
         entries: appendReply(s.entries, target.post.id, optimistic),
       }))
-      const result = await reply({ parentId: target.post.id, body })
+      const result = await reply({ parentId: target.post.id, body: text })
       if (result.ok) {
         setState((s) => ({ ...s, sending: false, entries: replacePost(s.entries, tempId, result.value) }))
         return true
