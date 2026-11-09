@@ -55,4 +55,48 @@ uv, Node and bun is available via `nix develop`.
 
 `host.html` and `why.html` are written by hand. Edit the HTML directly.
 
+## Deploy
+
+One container, SQLite, on your own machine:
+
+```sh
+git clone git@github.com:mansus-org/relay.git
+cd relay
+cp .env.example .env
+docker compose up -d --build
+curl -f localhost:8000/api/health
+```
+
+`http://localhost:8000` is the web app, `/api` the API, `/api/health` what
+orchestrators probe. The first `up` builds the image, which is the slow part: a
+few minutes on a cold machine, seconds once the layers are cached.
+
+The `.env` you just copied runs on the published development `SECRET_KEY` and says
+so out loud (`ALLOW_INSECURE_SECRET_KEY=1`), and Compose publishes on `127.0.0.1`
+only. Before anyone else connects, put a real key in and drop that line:
+
+```sh
+echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
+```
+
+An empty node is invite-only with no way in until somebody mints an invite in the
+database. To get the first account instead, set `ADMIN_USERNAME` and
+`ADMIN_PASSWORD` in `.env` before the first `up`; both or neither.
+
+The database is a file in the `relay-data` volume, so it outlives the containers:
+
+```sh
+docker compose restart   # or stop, then start
+docker compose down      # containers gone, volume and data kept
+docker compose down -v   # this one deletes the database
+```
+
+Postgres instead: `cp docker-compose.override.yml.example
+docker-compose.override.yml`, put a `POSTGRES_PASSWORD` in `.env`, and `docker
+compose up -d` again.
+
+The AI moderation sidecar is a Compose profile and no plain `up` starts it, because
+no moderation model is chosen yet (RELY-102). The shape of it, and how to turn it
+on, is in the comments in `docker-compose.yml`.
+
 Free software, owned by no one.

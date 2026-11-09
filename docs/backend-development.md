@@ -190,6 +190,12 @@ backend, and a slim Python runtime stage that runs as an unprivileged user
 (uid 100, gid 101) with a `HEALTHCHECK` on `/api/health`. SQLite lives in the `/data`
 volume; set `DATABASE_URL` for Postgres.
 
+`docker-compose.yml` runs that same image: it builds it, keeps SQLite in a named
+volume, takes its environment from `.env` (copy `.env.example`), and carries the
+Postgres swap in `docker-compose.override.yml.example`. The steps are in the root
+README. The AI moderation sidecar in the compose file is a profile, off unless you
+ask for it, and it decides no model: that is RELY-102.
+
 CI: `.github/workflows/backend-test.yml` runs the gates above (pytest on
 SQLite, then on a Postgres service container). `.github/workflows/deploy.yml`
 builds the root image and pushes it to `ghcr.io/mansus-org/relay`

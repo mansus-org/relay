@@ -1,0 +1,81 @@
+# Relay as one container: the FastAPI backend plus the Expo web build it serves.
+#
+#   cp .env.example .env
+#   docker compose up -d --build
+#   curl localhost:8000/api/health
+#
+# Everything it needs is inside the image, and the database is a file in the
+# relay-data volume, so there is nothing else to install. Postgres is opt-in:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# The AI moderation sidecar is not part of `up`. It is a profile, because RELY-102
+# has not chosen a model yet and a default would decide it for us. See `ollama`.
+
+name: relay
+
+services:
+  relay:
+    build: .
+    image: relay:local
+    # RELAY_BIND=127.0.0.1 keeps the node on this machine and off the network.
+    # Worth setting: a fresh .env runs on the published development SECRET_KEY.
+    ports:
+      - "${RELAY_BIND:-0.0.0.0}:${RELAY_PORT:-8000}:8000"
+    # Compose reads .env for the ${...} above on its own; this hands the same file
+    # to the process. `required: false` (Compose v2.24+) is what lets `up` run
+    # before you have written one, on the backend's own defaults.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - relay-data:/data
+    # No healthcheck here on purpose: the image carries its own, on /api/health.
+    restart: unless-stopped
+
+  # Optional, and not started by a plain `docker compose up`.
+  #
+  # Nothing in relay calls this yet. RELY-102 is the ticket that picks the moderation
+  # model and RELY-104 wires the backend to it; until then the only thing decided here
+  # is the shape: one API-speaking container on the compose network, reachable from
+  # relay at http://ollama:11434, model named in .env.
+  #
+  #   docker compose --profile ai up -d
+  #   docker compose exec ollama ollama list
+  ollama:
+    image: ollama/ollama:0.6.8
+    profiles: [ai]
+    environment:
+      OLLAMA_MODELS: /models
+      # From .env, through Compose's own variable substitution, not env_file:
+      # only relay gets that file.
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+    volumes:
+      - ollama-models:/models
+    expose:
+      - "11434"
+    # Serve, then pull whatever .env named, so the model is on the volume after the
+    # first start instead of baked into an image we would re-download per upgrade.
+    # An empty OLLAMA_MODEL leaves the sidecar running with nothing in it, which is
+    # the honest state of RELY-102 today.
+    #
+    # The image's ENTRYPOINT is /bin/ollama, so a bare `command:` here would be read
+    # as ollama's own arguments and die on the usage screen. The entrypoint becomes
+    # the shell and the script becomes its argument.
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        server_pid=$$!
+        sleep 5
+        if [ -n "$$OLLAMA_MODEL" ]; then ollama pull "$$OLLAMA_MODEL"; fi
+        wait $$server_pid
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  relay-data:
+  ollama-models:

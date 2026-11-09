@@ -4,3 +4,7 @@ __pycache__/
 
 # Nix build/shell output
 /result
+
+# Compose environment file (cp .env.example .env). It holds SECRET_KEY,
+# which signs every session on the node, so it never gets committed.
+.env
