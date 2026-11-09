@@ -42,7 +42,10 @@ In one sentence:
 ### Non-goals (for this pivot)
 
 - Federation between nodes.
-- A global directory, discovery, or public profiles.
+- A global directory or public profiles. Communities are the exception the
+  tracker settled (RELY-89, 2026-11-09): there is a list of the communities whose
+  radius reaches the cell you ask about, which is a locality filter over groups
+  that chose to be findable, not a directory of people.
 - Likes, reposts, follower counts, or an algorithmic feed.
 - A native mobile app, push notifications, or real-time chat.
 - Per-post privacy controls or encrypted posts.
@@ -100,6 +103,12 @@ Default member ceiling: **29**. The host may raise it with
 `--max-members`, but the UI and docs are designed for a few dozen people, not
 growth.
 
+Reopened in part (RELY-89, 2026-11-09): a node also holds **communities** — named
+groups with their own membership, feed, and optional locality. Joining one is
+open to anyone signed in who stands inside its radius, which is a wider door than
+an invitation. The node is still one group on one machine with one host, and the
+ceiling above is about the node's own member list.
+
 ### 3.2 An invitation is the identity
 
 There are no accounts. A live invitation key identifies a member. Opening an
@@ -126,6 +135,11 @@ ranking, no "for you", no popularity, and no read state. A node has few enough
 posts that the group can simply see them.
 
 No reposts. To share someone else's post, write your own post linking to it.
+
+A community's feed is the same rule with one filter: the posts filed to that
+community, newest first, removed posts left out (RELY-89). Distance is not a
+read-time filter — a member sees their community's posts wherever they were
+written from, and the radius is checked when they join.
 
 ### 3.5 Comments are members-only and plain
 
@@ -265,6 +279,17 @@ GET  /_relay/templates/<name>/prepublish.html   template form
 
 `GET /` remains the public landing for logged-out visitors. A member who wants
 their home opens `/_relay/home.html`, or the invite link redirects there.
+
+The Python backend has grown its own routes since this plan was written. The
+communities API (RELY-89) is the current shape for groups:
+
+```
+GET    /api/communities?cell=<h3>           communities whose radius reaches <h3>
+POST   /api/communities                     create (auth)
+GET    /api/communities/{id}
+GET    /api/communities/{id}/feed?cursor=   {posts, next_cursor}
+POST   /api/communities/{id}/join           {cell, pseudonym?} (auth)
+```
 
 The complete current and planned wire shapes are in [`api.md`](api.md).
 

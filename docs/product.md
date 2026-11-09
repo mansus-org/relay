@@ -33,6 +33,12 @@ target to satisfy.
 - **A guest list.** People join through invitation links, not sign-ups. An
   invitation is the identity. Members can invite people they vouch for, and the
   host can revoke a whole branch at once.
+- **Communities.** A community is a named group inside the node: a book club, a
+  street, a reading group. One with a place attached has an H3 cell and a radius
+  around it, and asking for the communities near a cell gets back the ones whose
+  radius reaches it. Anyone can read a community; a signed-in member can join one
+  that reaches where they are, or one that is not about a place at all. A post can
+  be filed to a community, and its members see all of them.
 - **A home for posts.** Every member has a profile page listing what they have
   shared. The node's home page lists what everyone has shared, newest first.
 - **Microwebsites.** A post is a small static website: HTML, pictures, links,
@@ -44,8 +50,10 @@ target to satisfy.
 
 ## What Relay is not
 
-- **Not a public social network.** There is no global directory, no discovery
-  page, no trending list, and no way to browse strangers' nodes.
+- **Not a public social network.** There is no global directory, no trending
+  list, and no way to browse strangers' nodes. The one list that reaches past
+  your own guest list is the communities near you: groups that chose a place and
+  a radius, shown to someone standing inside it.
 - **Not an account system.** There is no email, password, profile handle, or
   password reset. Your invitation is your way in.
 - **Not a platform.** There is no company account, no ads, no tracking, no
@@ -115,6 +123,9 @@ The template and publish contract is in [`publishing.md`](publishing.md).
 | **Profile** | The page listing one member's posts. |
 | **Home** | The page listing every member's recent posts, newest first. |
 | **Comment** | A short reply under a post, visible to members. |
+| **Community** | A named group inside the node, optionally anchored to a cell and a radius around it. |
+| **Membership** | One person's join of one community. It can carry a pseudonym. |
+| **Pseudonym** | The name someone chooses to be shown by in one community, instead of their own. |
 
 ## Relay and the IndieWeb
 
