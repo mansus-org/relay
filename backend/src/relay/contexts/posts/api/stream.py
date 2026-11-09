@@ -1,116 +1,114 @@
-"""The live locality: one long-lived response that says what is being said nearby.
+"""The live edge of the posts context: watch a locality and have new posts said to you.
 
-Server-Sent Events, because that is what `mobile/src/infrastructure/stream/` already
-reads: `event: post` with the post in `data`, and any other event name ignored. The
-post is the same object `GET /feed` returns, field for field, so the screen that shows
-both never has to tell a streamed post from a pulled one.
+`GET /api/stream` is the push half of what `GET /api/feed` is the pull half of. Same
+locality, same radius bounds, same refusal for a cell no feed reads - a client that can
+read a feed can watch one, and a client that would be refused a feed is refused here
+before a single byte of stream is written. Nothing is remembered between connections:
+what was said while you were away is the feed's to give you.
 
-Nothing here is asked for twice: the reader subscribes once and then waits, and the
-only thing that ends the stream is the reader hanging up, or the node shutting down.
+The path, the query names and the event name are the ones the mobile client already
+codes against (`mobile/src/infrastructure/stream/fetch-post-stream.ts`), which is the
+only thing that has to agree with this file: it asks for `/stream?cell=`, listens for
+`event: post`, and ignores everything else, comments included.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 from relay.container import Container
 from relay.contexts.posts.api.posts import PostResponse
 from relay.contexts.posts.domain.cells import DEFAULT_RADIUS_KM, CellError
+from relay.contexts.posts.domain.post import Post
 from relay.contexts.posts.domain.tally import PostTally
 from relay.contexts.posts.infrastructure.broadcaster import LocalBroadcaster, Subscription
 from relay.shared.api.dependencies import get_container
 
-router = APIRouter(tags=["stream"])
+router = APIRouter(tags=["posts"])
 
 
-def get_broadcaster(request: Request) -> LocalBroadcaster:
-    """The one broadcaster this process has, made when it started up."""
-    broadcaster: LocalBroadcaster = request.app.state.broadcaster
-    return broadcaster
+def get_broadcaster(container: Annotated[Container, Depends(get_container)]) -> LocalBroadcaster:
+    """The streams open in this process. Public, like every read in Relay."""
+    return container.live_feed
 
 
-def get_keepalive_seconds(
-    container: Annotated[Container, Depends(get_container)],
-) -> float:
-    return container.settings.stream_keepalive_seconds
-
-
-def _event(name: str, data: BaseModel) -> str:
-    """One SSE frame.
-
-    `data` is a single line because JSON escapes every newline in it, which is what the
-    protocol asks for and what the client's parser splits on.
-    """
-    return f"event: {name}\ndata: {data.model_dump_json()}\n\n"
-
-
-async def _locality(
-    broadcaster: LocalBroadcaster, subscription: Subscription, keepalive_seconds: float
-) -> AsyncIterator[str]:
-    """Every post that lands in this subscription, for as long as the reader stays."""
-    try:
-        while True:
-            try:
-                async with asyncio.timeout(keepalive_seconds):
-                    post = await subscription.next_post()
-            except TimeoutError:
-                # Nothing to say, so say that: a comment line is how SSE keeps a
-                # connection alive across a proxy or a radio that closes on silence.
-                yield ": keepalive\n\n"
-                continue
-            if post is None:
-                return
-            # A post nobody has had time to react to or reply to yet, so its tallies are
-            # the empty ones - the same answer `POST /posts` gives its author.
-            yield _event("post", PostResponse.from_domain(post, PostTally()))
-    finally:
-        # However this ended - the reader hung up, the node shut down, an exception - the
-        # broadcaster stops carrying a queue nobody is reading.
-        broadcaster.unsubscribe(subscription)
-
-
-@router.get(
-    "/stream",
-    response_class=StreamingResponse,
-    summary="What is being said nearby, as it happens",
-    description=(
-        "Holds the connection open and sends `event: post` for every post said within "
-        "`radius` km of `cell` while you are connected, then nothing at all until the "
-        "next one. The post is the same object `GET /feed` returns. A quiet locality "
-        "sends a comment line now and then to prove the connection is still up; a "
-        "client should ignore it. Whatever you missed while you were away is what "
-        "`GET /feed` is for. Public, like every read in Relay: what is being said in a "
-        "locality is no secret, and a phone that is not signed in still has a locality."
-    ),
-    responses={
-        400: {"description": "The cell or the radius was not usable."},
-    },
-)
-async def watch_locality(
-    cell: Annotated[str, Query(description="Your current H3 resolution-8 cell.")],
+def watch_locality(
     broadcaster: Annotated[LocalBroadcaster, Depends(get_broadcaster)],
-    keepalive_seconds: Annotated[float, Depends(get_keepalive_seconds)],
+    cell: Annotated[str, Query(description="Your current H3 resolution-8 cell.")],
     radius: Annotated[
         float,
         Query(description="How far out to watch, in km: between 0 and 25."),
     ] = DEFAULT_RADIUS_KM,
-) -> StreamingResponse:
+) -> Iterator[Subscription]:
+    """One reader of this locality, forgotten once the response is done with it.
+
+    A dependency rather than a line in the route, because this is torn down even when
+    the client hung up before a single event was written: a queue nobody will ever read
+    again must not be left behind in the process.
+    """
     try:
-        subscription = broadcaster.subscribe(cell, radius_km=radius)
+        reader = broadcaster.subscribe(cell, radius_km=radius)
     except CellError as error:
-        # Before anything is streamed, so the client gets a plain 400 it can read.
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    try:
+        yield reader
+    finally:
+        broadcaster.unsubscribe(reader)
+
+
+async def _events(reader: Subscription, *, keepalive_seconds: float) -> AsyncIterator[str]:
+    """One `post` event per post said in this locality, and a comment when nothing is.
+
+    The keepalive is the whole protocol: it is what stops whatever sits in front of
+    Relay deciding an idle stream is a dead one. Only the timeout is caught here, so a
+    client that hung up is not swallowed on the way out - the dependency above is what
+    makes the cleanup happen either way.
+    """
+    while True:
+        try:
+            post = await asyncio.wait_for(reader.next_post(), timeout=keepalive_seconds)
+        except TimeoutError:
+            yield ": keepalive\n\n"
+            continue
+        if post is None:
+            # This node is going away. Say so, rather than leave them waiting to notice.
+            yield ": closed\n\n"
+            return
+        yield _event(post)
+
+
+def _event(post: Post) -> str:
+    """The post as the feed would have shown it, on the wire.
+
+    The tally is empty and always will be: this goes out the moment a post is said, and
+    a post that was just said has nothing on it yet. Whoever is watching picks the
+    reactions up from the feed, same as they would have by pulling to refresh.
+    """
+    return f"event: post\ndata: {PostResponse.from_domain(post, PostTally()).model_dump_json()}\n\n"
+
+
+@router.get(
+    "/stream",
+    summary="Watch this locality",
+    description=(
+        "An open stream of the posts being said within `radius` km of `cell`: the same "
+        "locality `GET /feed` reads, arriving as it happens. Each one is a `post` event "
+        "with the same body a feed page carries, and a comment is sent whenever nothing "
+        "has been said for a while. Public, like every read in Relay. Nothing is "
+        "remembered between connections - what was said while you were away is the "
+        "feed's to give you."
+    ),
+    responses={400: {"description": "The cell or the radius was not usable."}},
+)
+async def stream(
+    reader: Annotated[Subscription, Depends(watch_locality)],
+    container: Annotated[Container, Depends(get_container)],
+) -> StreamingResponse:
     return StreamingResponse(
-        _locality(broadcaster, subscription, keepalive_seconds),
+        _events(reader, keepalive_seconds=container.settings.stream_keepalive_seconds),
         media_type="text/event-stream",
-        headers={
-            # Nobody is meant to cache a locality, and nothing is meant to sit on a
-            # chunk of one waiting to be whole: a post arrives the moment it is said.
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
