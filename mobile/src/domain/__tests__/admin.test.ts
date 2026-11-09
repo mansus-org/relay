@@ -84,6 +84,27 @@ describe('aiVerdict', () => {
     expect(aiVerdict({ verdict: '', confidence: 0.9 })).toBeNull()
     expect(aiVerdict({ verdict: 'something nobody named' })).toBeNull()
   })
+
+  it('does not read an approval out of a word that wants the post gone', () => {
+    // Each of these hides one of our words inside a longer one that means the opposite.
+    expect(aiVerdict({ verdict: 'unsafe' })).toBeNull()
+    expect(aiVerdict({ verdict: 'disallowed' })).toBeNull()
+    expect(aiVerdict({ verdict: 'not approved' })).toBeNull()
+    expect(aiVerdict({ verdict: "isn't clean" })).toBeNull()
+  })
+
+  it('reads a sentence the way an admin would', () => {
+    expect(aiVerdict({ status: 'looks like spam' })).toBe('removed')
+    expect(aiVerdict({ status: 'auto-approved' })).toBe('approved')
+    expect(aiVerdict({ verdict: 'flagged, not approved' })).toBe('flagged')
+  })
+
+  it('takes the harshest reading when the model hedged both ways', () => {
+    // A model that said both has not cleared the post, and an approved badge is how a bad post
+    // walks out of the queue unlooked at.
+    expect(aiVerdict({ label: 'approved but flagged' })).toBe('flagged')
+    expect(aiVerdict({ label: 'clean, possible spam' })).toBe('removed')
+  })
 })
 
 describe('aiConfidence', () => {
@@ -99,6 +120,15 @@ describe('aiConfidence', () => {
     expect(aiConfidence({ verdict: 'flagged' })).toBeNull()
     expect(aiConfidence({ confidence: -1 })).toBeNull()
     expect(aiConfidence({ confidence: 'sure' })).toBeNull()
+    // A blank box is not a model that said zero.
+    expect(aiConfidence({ confidence: '' })).toBeNull()
+    expect(aiConfidence({ confidence: '  ' })).toBeNull()
+  })
+
+  it('never says a hundred and fifty percent', () => {
+    expect(aiConfidence({ confidence: 1 })).toBe(100)
+    expect(aiConfidence({ confidence: 150 })).toBe(100)
+    expect(aiConfidence({ score: '999' })).toBe(100)
   })
 })
 
@@ -132,6 +162,19 @@ describe('aiRest', () => {
     expect(aiRest(null)).toEqual([])
     expect(aiRest({ verdict: 'flagged', nothing: null })).toEqual([])
   })
+
+  it('keeps a second thing the model said that the badge never read', () => {
+    expect(aiRest({ verdict: 'removed', reason: 'slur list', note: 'second offence' })).toEqual([
+      { key: 'note', value: 'second offence' },
+    ])
+  })
+
+  it('shows what the badge could not say', () => {
+    // The verdict word is one none of us recognises, so the badge stayed silent and the page
+    // still has the model's own word to show.
+    expect(aiRest({ status: 'quarantined' })).toEqual([{ key: 'status', value: 'quarantined' }])
+    expect(aiRest({ verdict: 'flagged', confidence: 'high' })).toEqual([{ key: 'confidence', value: 'high' }])
+  })
 })
 
 describe('authorLabel', () => {
@@ -152,6 +195,11 @@ describe('canRemoveMember', () => {
 
   it('offers it for anybody else', () => {
     expect(canRemoveMember(member('bob'), 'ada')).toBe(true)
+  })
+
+  it('will not offer it twice to the same account', () => {
+    // The node answers 409, and the sheet has a line for an account that is already off.
+    expect(canRemoveMember(member('bob', { deactivatedAt: '2025-04-01T10:00:00' }), 'ada')).toBe(false)
   })
 })
 

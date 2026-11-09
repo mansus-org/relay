@@ -59,7 +59,44 @@ const VERDICT_WORDS: Record<AiVerdict, readonly string[]> = {
   removed: ['removed', 'remove', 'blocked', 'block', 'rejected', 'reject', 'spam', 'violation', 'fail'],
 }
 
-/** Loose on purpose: the words are the model's, and a model says "spam" as often as "removed". */
+const tokensOf = (phrase: string): string[] => phrase.split(/[^a-z']+/).filter((token) => token !== '')
+
+// Which reading wins when a phrase could be read two ways. Removing is the one you cannot undo
+// quietly, so it is the one to show a human when the model hedged in both directions.
+const HARSHNESS: Record<AiVerdict, number> = { removed: 0, flagged: 1, approved: 2 }
+
+// A word doing the opposite of the one it sits next to. "not approved" is not an approval, and an
+// admin who was shown one would approve the post a second time believing the model agreed.
+const NEGATIONS = new Set([
+  'not',
+  "n't",
+  'no',
+  'non',
+  'never',
+  'cannot',
+  "isn't",
+  "wasn't",
+  "aren't",
+  "doesn't",
+  "won't",
+  "don't",
+])
+
+const says = (tokens: string[], words: readonly string[]): boolean =>
+  tokens.some(
+    (token, index) =>
+      words.includes(token) && !(index > 0 && NEGATIONS.has(tokens[index - 1] ?? '')),
+  )
+
+/**
+ * Loose on purpose: the words are the model's, and a model says "spam" as often as "removed".
+ *
+ * Whole words only, never a run inside a longer one - "unsafe" contains "safe" and "disallowed"
+ * contains "allow", and both of them want the post gone. Where the phrase says more than one
+ * kind of thing, the harshest reading wins, because a model that hedged in both directions has
+ * not cleared the post. Saying nothing is the answer when nothing here matches: a badge is read
+ * as an opinion, and a guess is not one.
+ */
 export const aiVerdict = (ai: AiDecision | null): AiVerdict | null => {
   if (!ai) return null
   let word = ''
@@ -71,20 +108,28 @@ export const aiVerdict = (ai: AiDecision | null): AiVerdict | null => {
     }
   }
   if (!word) return null
-  const verdicts = Object.keys(VERDICT_WORDS) as AiVerdict[]
-  for (const verdict of verdicts) if (VERDICT_WORDS[verdict].includes(word)) return verdict
-  for (const verdict of verdicts) if (VERDICT_WORDS[verdict].some((one) => word.includes(one))) return verdict
+  const harshestFirst = (Object.keys(VERDICT_WORDS) as AiVerdict[]).sort((a, b) => HARSHNESS[a] - HARSHNESS[b])
+  for (const verdict of harshestFirst) if (VERDICT_WORDS[verdict].includes(word)) return verdict
+  const tokens = tokensOf(word)
+  for (const verdict of harshestFirst) {
+    if (says(tokens, VERDICT_WORDS[verdict])) return verdict
+  }
   return null
 }
 
-/** How sure the model was, as a whole percent. It may answer 0.92 or 92; both mean ninety-two. */
+/**
+ * How sure the model was, as a whole percent. It may answer 0.92 or 92; both mean ninety-two.
+ *
+ * An empty string is no answer rather than zero, and nothing goes past a hundred - a badge that
+ * reads "150%" teaches an admin to stop reading the badges.
+ */
 export const aiConfidence = (ai: AiDecision | null): number | null => {
   if (!ai) return null
   for (const key of CONFIDENCE_KEYS) {
     const value = ai[key]
-    const number = typeof value === 'string' ? Number(value) : value
+    const number = typeof value === 'string' ? (value.trim() === '' ? Number.NaN : Number(value)) : value
     if (typeof number === 'number' && Number.isFinite(number) && number >= 0) {
-      return Math.round(number > 0 && number <= 1 ? number * 100 : number)
+      return Math.round(Math.min(number <= 1 ? number * 100 : number, 100))
     }
   }
   return null
@@ -116,11 +161,48 @@ export const aiBadge = (ai: AiDecision | null): AiBadge | null => {
 }
 
 /** The parts of the machine's answer that the badge and the reason did not already say. */
+const firstKey = (ai: AiDecision, keys: readonly string[], usable: (value: unknown) => boolean): string | null => {
+  for (const key of keys) if (usable(ai[key])) return key
+  return null
+}
+
+const nonEmpty = (value: unknown): boolean => typeof value === 'string' && value.trim() !== ''
+
+const readableNumber = (value: unknown): boolean =>
+  typeof value === 'number'
+    ? Number.isFinite(value) && value >= 0
+    : typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0
+
+/**
+ * The keys that were read out loud, as opposed to the ones that were merely looked at.
+ *
+ * A model that gave both `reason` and `note` said two things, and the page shows both: only the
+ * key that actually fed the badge or the sentence is held back, not every key that could have.
+ * A verdict word none of us recognises is not spoken for either - the badge stayed silent, so
+ * the page still shows what the model wrote.
+ */
+const spokenFor = (ai: AiDecision): Set<string> => {
+  const used = new Set<string>()
+  if (aiVerdict(ai) !== null) {
+    const key = firstKey(ai, VERDICT_KEYS, nonEmpty)
+    if (key) used.add(key)
+  }
+  if (aiConfidence(ai) !== null) {
+    const key = firstKey(ai, CONFIDENCE_KEYS, readableNumber)
+    if (key) used.add(key)
+  }
+  if (aiReason(ai) !== null) {
+    const key = firstKey(ai, REASON_KEYS, nonEmpty)
+    if (key) used.add(key)
+  }
+  return used
+}
+
 export const aiRest = (ai: AiDecision | null): readonly { readonly key: string; readonly value: string }[] => {
   if (!ai) return []
-  const shown: ReadonlySet<string> = new Set([...VERDICT_KEYS, ...CONFIDENCE_KEYS, ...REASON_KEYS])
+  const used = spokenFor(ai)
   return Object.entries(ai)
-    .filter(([key, value]) => !shown.has(key) && value !== null && value !== undefined)
+    .filter(([key, value]) => !used.has(key) && value !== null && value !== undefined)
     .map(([key, value]) => ({ key, value: typeof value === 'string' ? value : JSON.stringify(value) }))
 }
 
@@ -179,11 +261,11 @@ export type MemberDetail = {
 }
 
 /**
- * Whether this admin is allowed to try. The node refuses its own account and every other
- * admin's, so the button is not offered for them.
+ * Whether this admin is allowed to try. The node refuses its own account, every other admin's,
+ * and one that is already off, so the button is not offered for any of them.
  */
 export const canRemoveMember = (member: AdminMember, myHandle: string): boolean =>
-  !member.isAdmin && member.handle.toLowerCase() !== myHandle.toLowerCase()
+  !member.isAdmin && member.deactivatedAt === null && member.handle.toLowerCase() !== myHandle.toLowerCase()
 
 const LOG_WORDS: Record<string, string> = {
   approved: 'Approved a post',
@@ -239,7 +321,7 @@ export const canRevokeInvite = (invite: Invite): boolean => invite.state === 'op
 export const tokenPreview = (token: string): string => (token.length > 12 ? `${token.slice(0, 12)}…` : token)
 
 /** The word on the state box. An open invite is called `pending` there, because that is what it
- * is waiting for; the node's own word for the state is `active`. */
+ * is waiting for; the node's own word for the state is `open`. */
 export const inviteStateLabel = (invite: Invite): string =>
   invite.state === 'open' ? 'pending' : invite.state === 'used' ? 'used' : 'revoked'
 
