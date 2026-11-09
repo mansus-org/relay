@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, Platform } from 'react-native'
 
-import { appendPage, bufferPost, postalCodeMessage, prependPosts, type Post } from '../domain'
+import { appendPage, bufferPost, editPost, postalCodeMessage, prependPosts, removePost, type Post } from '../domain'
 import { useUseCases } from './use-cases'
+import { useReaction, type EditPost } from './use-reaction'
 
 /** The web has no GPS of its own; the browser gets asked instead, and a postal code covers the rest. */
 export const usesPostalCode = (): boolean => Platform.OS === 'web'
@@ -187,8 +188,14 @@ export function useFeed(options: FeedOptions = {}) {
   const { cell } = state
   useEffect(() => {
     if (!cell) return
-    return subscribeToPosts(cell, (post) =>
-      setState((s) => (s.posts.some((p) => p.id === post.id) ? s : { ...s, pending: bufferPost(s.pending, post) })),
+    return subscribeToPosts(cell, (event) =>
+      setState((s) =>
+        event.kind === 'post_removed'
+          ? { ...s, posts: removePost(s.posts, event.postId), pending: removePost(s.pending, event.postId) }
+          : s.posts.some((p) => p.id === event.post.id)
+            ? s
+            : { ...s, pending: bufferPost(s.pending, event.post) },
+      ),
     )
   }, [cell, subscribeToPosts])
 
@@ -229,6 +236,10 @@ export function useFeed(options: FeedOptions = {}) {
     [],
   )
 
+  // A reaction goes on the card it was tapped on, and settles on whatever the server counted.
+  const edit = useCallback<EditPost>((postId, next) => setState((s) => ({ ...s, posts: editPost(s.posts, postId, next) })), [])
+  const react = useReaction(edit)
+
   /** The web: ask the browser again from the prompt, and say so when it still will not answer. */
   const useBrowserLocation = useCallback(async () => {
     patch({ askingBrowser: true, placeError: null })
@@ -257,5 +268,6 @@ export function useFeed(options: FeedOptions = {}) {
     refresh,
     loadMore,
     showPending,
+    react,
   }
 }

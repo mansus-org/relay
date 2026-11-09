@@ -6,6 +6,7 @@ export type PostDto = {
   body: string
   created_at: string
   location_cell?: string | null
+  parent_id?: string | null
   reactions?: { emoji: string; count: number; mine?: boolean }[]
   reply_count?: number
 }
@@ -16,6 +17,7 @@ export const toPost = (dto: PostDto): Post => ({
   body: dto.body,
   createdAt: dto.created_at,
   locationCell: dto.location_cell ?? null,
+  parentId: dto.parent_id ?? null,
   reactions: (dto.reactions ?? []).map((r) => ({ emoji: r.emoji, count: r.count, mine: r.mine ?? false })),
   replyCount: dto.reply_count ?? 0,
 })

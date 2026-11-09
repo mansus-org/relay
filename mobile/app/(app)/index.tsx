@@ -35,6 +35,7 @@ export default function Feed() {
     refresh,
     loadMore,
     showPending,
+    react,
   } = useFeed({
     requestedCode: code ?? null,
     onPlaced: (next) => router.setParams({ code: next }),
@@ -157,7 +158,14 @@ export default function Feed() {
           ref={list}
           data={state.posts}
           keyExtractor={(post) => post.id}
-          renderItem={({ item }) => <FeedPostCard post={item} now={now} />}
+          renderItem={({ item }) => (
+            <FeedPostCard
+              now={now}
+              post={item}
+              onPress={() => router.push(`/post/${item.id}`)}
+              onToggleReaction={(emoji) => void react(item, emoji)}
+            />
+          )}
           contentContainerStyle={[styles.feed, state.pending.length > 0 && { paddingTop: 66 }]}
           ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
           refreshControl={<RefreshControl refreshing={state.refreshing} onRefresh={() => void refresh()} tintColor={colors.red} colors={[colors.red]} />}

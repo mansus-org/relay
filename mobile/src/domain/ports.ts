@@ -1,7 +1,7 @@
 import type { AuthError } from './auth-error'
 import type { NodeTest } from './node-test'
 import type { AuthTokens, Credentials, RefreshedSession, Registration, Session } from './session'
-import type { ApiError, Community, FeedPage, FeedQuery, LatLng, LocationStatus, NewPost, Post } from './post'
+import type { ApiError, Community, FeedPage, FeedQuery, LatLng, LocationStatus, NewPost, Post, Reaction, StreamEvent } from './post'
 import type { Result } from './result'
 import type { CommunityDetails, CommunityError, CommunityFeedQuery, JoinRequest, NewCommunity } from './community'
 import type { Event, EventDetail, EventError, EventPage, NewEvent } from './event'
@@ -57,6 +57,14 @@ export type FeedRepository = {
 
 export type PostRepository = {
   readonly create: (post: NewPost) => Promise<Result<Post, ApiError>>
+  /** The post that starts a thread, by id. */
+  readonly get: (id: string) => Promise<Result<Post, ApiError>>
+  /** The posts that answer one post, oldest first; one level at a time. */
+  readonly listReplies: (postId: string) => Promise<Result<readonly Post[], ApiError>>
+  /** Leaves an emoji on a post and returns what that emoji now counts. */
+  readonly react: (postId: string, emoji: string) => Promise<Result<Reaction, ApiError>>
+  /** Takes an emoji of yours back off a post. */
+  readonly unreact: (postId: string, emoji: string) => Promise<Result<void, ApiError>>
 }
 
 export type CommunityRepository = {
@@ -85,8 +93,8 @@ export type EventRepository = {
 }
 
 export type PostStream = {
-  /** Calls onPost for each new post in the cell until the returned unsubscribe function is called. */
-  readonly subscribe: (cell: string, onPost: (post: Post) => void) => () => void
+  /** Calls onEvent for each thing that happens in the cell until the returned unsubscribe function is called. */
+  readonly subscribe: (cell: string, onEvent: (event: StreamEvent) => void) => () => void
 }
 
 export type LocationProvider = {

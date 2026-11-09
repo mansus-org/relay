@@ -2,7 +2,7 @@ import { act, create } from 'react-test-renderer'
 import { Platform } from 'react-native'
 
 import { makeReadPostalCode, makeResolvePostalCode, type LocationError, type ResolvedLocation, type UseCases } from '../../application'
-import { err, ok, type FeedPage, type Post, type Result } from '../../domain'
+import { err, ok, type FeedPage, type Post, type Result, type StreamEvent } from '../../domain'
 import { makeFakePostalCodeResolver, makePostalArea, makePost } from '../../testing/fakes'
 import { UseCasesProvider } from '../use-cases'
 import { useCompose } from '../use-compose'
@@ -36,13 +36,21 @@ const page = (ids: string[], nextCursor: string | null): FeedPage => ({ posts: i
 
 describe('useFeed', () => {
   function setup(extra: Partial<UseCases> = {}) {
-    let push: (post: Post) => void = () => {}
+    let push: (event: StreamEvent) => void = () => {}
     const unsubscribe = jest.fn()
     const loadFeed = jest.fn(async ({ cursor }: { cell: string; cursor?: string }) => ok(cursor ? page(['c', 'd'], null) : page(['a', 'b'], 'next')))
     const resolveLocation = jest.fn(async () => located)
-    const subscribeToPosts = jest.fn((_cell: string, onPost: (post: Post) => void) => ((push = onPost), unsubscribe))
+    const subscribeToPosts = jest.fn((_cell: string, onEvent: (event: StreamEvent) => void) => ((push = onEvent), unsubscribe))
     const mounted = mount(useFeed, { loadFeed, resolveLocation, subscribeToPosts, ...extra } as Partial<UseCases>)
-    return { ...mounted, loadFeed, resolveLocation, subscribeToPosts, unsubscribe, push: (p: Post) => act(() => push(p)) }
+    return {
+      ...mounted,
+      loadFeed,
+      resolveLocation,
+      subscribeToPosts,
+      unsubscribe,
+      push: (post: Post) => act(() => push({ kind: 'new_post', post })),
+      remove: (postId: string) => act(() => push({ kind: 'post_removed', postId })),
+    }
   }
 
   it('loads the feed for the located cell and subscribes to its stream', async () => {
@@ -100,6 +108,18 @@ describe('useFeed', () => {
     expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['n2', 'n1', 'a', 'b'])
     expect(t.result.current.state.pending).toEqual([])
     expect(t.loadFeed).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a post the stream says was deleted, from the feed and from the buffer', async () => {
+    const t = setup()
+    await flush()
+    t.push(makePost('n1'))
+    expect(t.result.current.state.pending.map((p) => p.id)).toEqual(['n1'])
+    t.remove('n1')
+    expect(t.result.current.state.pending).toEqual([])
+    t.remove('a')
+    expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['b'])
+    t.unmount()
   })
 })
 

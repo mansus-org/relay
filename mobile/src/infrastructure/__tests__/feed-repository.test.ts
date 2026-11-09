@@ -31,6 +31,7 @@ describe('feed repository', () => {
             body: 'post p1',
             createdAt: '2026-10-29T12:00:00Z',
             locationCell: '88a8100d6dfffff',
+            parentId: null,
             reactions: [{ emoji: '🔥', count: 4, mine: true }],
             replyCount: 3,
           },
@@ -64,5 +65,54 @@ describe('post repository', () => {
     const { http, seen } = setup(() => ({ status: 201, data: makePostDto('n', { location_cell: null }) }))
     await makeHttpPostRepository({ http }).create({ body: 'hi' })
     expect(JSON.parse(seen[0]!.data as string)).toEqual({ body: 'hi' })
+  })
+
+  it('reads one post', async () => {
+    const { http, seen } = setup(() => ({ status: 200, data: makePostDto('p1') }))
+    const result = await makeHttpPostRepository({ http }).get('p1')
+    expect(seen[0]!.url).toBe('/posts/p1')
+    expect(result.ok && result.value.id).toBe('p1')
+  })
+
+  it('reports a post that is not there', async () => {
+    const { http } = setup(() => ({ status: 404 }))
+    expect(await makeHttpPostRepository({ http }).get('nope')).toEqual({ ok: false, error: 'unexpected' })
+  })
+
+  it('adds a reaction and reads back the tally', async () => {
+    const { http, seen } = setup(() => ({ status: 201, data: { emoji: '❤️', count: 5, mine: true } }))
+    const result = await makeHttpPostRepository({ http }).react('p1', '❤️')
+    expect(seen[0]).toMatchObject({ url: '/posts/p1/reactions', data: JSON.stringify({ emoji: '❤️' }) })
+    expect(result).toEqual({ ok: true, value: { emoji: '❤️', count: 5, mine: true } })
+  })
+
+  it('reports a reaction the server refuses', async () => {
+    const { http } = setup(() => ({ status: 409 }))
+    expect(await makeHttpPostRepository({ http }).react('p1', '❤️')).toEqual({ ok: false, error: 'unexpected' })
+  })
+
+  it('removes a reaction, and takes the empty answer as no news', async () => {
+    const { http, seen } = setup(() => ({ status: 204 }))
+    const result = await makeHttpPostRepository({ http }).unreact('p1', '❤️')
+    expect(seen[0]!.url).toBe('/posts/p1/reactions/%E2%9D%A4%EF%B8%8F')
+    expect(result).toEqual({ ok: true, value: undefined })
+  })
+
+  it('reports taking back a reaction that was never left', async () => {
+    const { http } = setup(() => ({ status: 404 }))
+    expect(await makeHttpPostRepository({ http }).unreact('p1', '❤️')).toEqual({ ok: false, error: 'unexpected' })
+  })
+
+  it('reads one level of replies, oldest first as the server sends it', async () => {
+    const { http, seen } = setup(() => ({
+      status: 200,
+      data: { posts: [makePostDto('r1', { parent_id: 'p1' }), makePostDto('r2', { parent_id: 'p1' })] },
+    }))
+    const result = await makeHttpPostRepository({ http }).listReplies('p1')
+    expect(seen[0]!.url).toBe('/posts/p1/replies')
+    expect(result.ok && result.value.map((p) => [p.id, p.parentId])).toEqual([
+      ['r1', 'p1'],
+      ['r2', 'p1'],
+    ])
   })
 })

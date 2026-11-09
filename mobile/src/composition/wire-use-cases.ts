@@ -16,7 +16,11 @@ import {
   makeCreateEvent,
   makeLoadEvent,
   makeLoadNearbyEvents,
+  makeLoadReplies,
+  makeLoadThread,
   makeRsvpToEvent,
+  makeReply,
+  makeToggleReaction,
   makeLogin,
   makeLogout,
   makeReadPostalCode,
@@ -116,6 +120,7 @@ export function wireUseCases({
   const profileRepository = makeHttpProfileRepository({ http })
   const nodeProbe = makeHttpNodeProbe()
   const postStream = makeFetchPostStream({ fetch: streamFetch ?? (globalThis.fetch as unknown as StreamFetch), getBaseUrl, getAccessToken })
+  const postRepository = makeHttpPostRepository({ http })
 
   return {
     login: makeLogin({ authRepository, tokenWriter: tokenStore, serverUrlWriter: serverUrlStore }),
@@ -128,7 +133,11 @@ export function wireUseCases({
     readPostalCode: makeReadPostalCode({ store: postalCodeStore }),
     placeNameOf: makeCellPlaceName({ cellEncoder, placeNamer: namer }),
     subscribeToPosts: makeSubscribeToPosts({ postStream }),
-    createPost: makeCreatePost({ postRepository: makeHttpPostRepository({ http }) }),
+    createPost: makeCreatePost({ postRepository }),
+    loadThread: makeLoadThread({ postRepository }),
+    loadReplies: makeLoadReplies({ postRepository }),
+    reply: makeReply({ postRepository }),
+    toggleReaction: makeToggleReaction({ postRepository }),
     listJoinedCommunities: makeListJoinedCommunities({ communityRepository }),
     loadNearbyCommunities: makeLoadNearbyCommunities({ communityRepository, cellEncoder }),
     loadCommunity: makeLoadCommunity({ communityRepository, cellEncoder }),

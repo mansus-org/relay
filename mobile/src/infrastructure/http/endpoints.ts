@@ -5,9 +5,16 @@ export const REFRESH_PATH = '/auth/refresh'
 /** PATCH with the bearer token: the account that token belongs to. */
 export const PROFILE_PATH = '/auth/me'
 
-// Feed, posts and live stream. Assumed contract; the backend endpoints do not exist yet.
+// Feed and posts. Served by the backend (RELY-90).
 export const FEED_PATH = '/feed'
 export const POSTS_PATH = '/posts'
+export const postPath = (id: string) => `${POSTS_PATH}/${encodeURIComponent(id)}`
+export const postRepliesPath = (id: string) => `${postPath(id)}/replies`
+export const postReactionsPath = (id: string) => `${postPath(id)}/reactions`
+/** The emoji goes in the path, so it is encoded like any other path segment. */
+export const reactionPath = (id: string, emoji: string) => `${postReactionsPath(id)}/${encodeURIComponent(emoji)}`
+
+// Live stream. Served by the backend (RELY-91): one `post` event per post said near the cell.
 export const STREAM_PATH = '/stream'
 export const JOINED_COMMUNITIES_PATH = '/communities/joined'
 

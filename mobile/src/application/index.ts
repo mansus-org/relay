@@ -12,6 +12,8 @@ import type { makeLoadFeed } from './feed'
 import type { makeCellPlaceName, makeResolveLocation } from './resolve-location'
 import type { makeReadPostalCode, makeResolvePostalCode } from './resolve-postal-code'
 import type { makeSubscribeToPosts } from './subscribe-to-posts'
+import type { makeLoadReplies, makeLoadThread, makeReply } from './thread'
+import type { makeToggleReaction } from './react'
 import type { makeLogin } from './login'
 import type { makeRegister } from './register'
 import type { makeLogout } from './logout'
@@ -44,6 +46,8 @@ export { makeLoadFeed } from './feed'
 export { makeCellPlaceName, makeResolveLocation, type LocationError, type ResolvedLocation } from './resolve-location'
 export { makeReadPostalCode, makeResolvePostalCode } from './resolve-postal-code'
 export { makeSubscribeToPosts } from './subscribe-to-posts'
+export { makeLoadReplies, makeLoadThread, makeReply, type ReplyInput } from './thread'
+export { makeToggleReaction } from './react'
 export { makeLogin, type LoginInput } from './login'
 export { makeLogout } from './logout'
 export { makeRegister, type RegisterInput } from './register'
@@ -70,6 +74,13 @@ export type UseCases = {
   readonly placeNameOf: ReturnType<typeof makeCellPlaceName>
   readonly subscribeToPosts: ReturnType<typeof makeSubscribeToPosts>
   readonly createPost: ReturnType<typeof makeCreatePost>
+  /** The post a thread screen opens on. */
+  readonly loadThread: ReturnType<typeof makeLoadThread>
+  /** One level of replies under a post, for "show replies". */
+  readonly loadReplies: ReturnType<typeof makeLoadReplies>
+  readonly reply: ReturnType<typeof makeReply>
+  /** Leaves an emoji on a post or takes it back, and says what that emoji now counts. */
+  readonly toggleReaction: ReturnType<typeof makeToggleReaction>
   readonly listJoinedCommunities: ReturnType<typeof makeListJoinedCommunities>
   readonly loadNearbyCommunities: ReturnType<typeof makeLoadNearbyCommunities>
   readonly loadCommunity: ReturnType<typeof makeLoadCommunity>
