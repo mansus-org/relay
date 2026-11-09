@@ -27,6 +27,7 @@ Run lint and typecheck before declaring any task done.
 
 - Use **Expo Router** for all navigation. Routes live in `app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.
 - Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
+- The `(app)` group gates through `authRedirect` (`src/presentation/auth-guard.ts`). On the web a stranger reads the feed without an account: only `MEMBER_ROUTES` (`/compose`, `/communities`) send them to `/login`. The installed app gates the whole group.
 - Docs: https://docs.expo.dev/router/introduction.md
 
 ## Building with EAS

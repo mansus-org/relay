@@ -11,8 +11,39 @@ from relay.contexts.auth.application import (
 )
 from relay.contexts.auth.application.unit_of_work import AuthUnitOfWork
 from relay.contexts.auth.domain.ports import PasswordHasher, TokenBroker
+from relay.contexts.communities.application import (
+    CommunitiesUnitOfWork,
+    CreateCommunity,
+    GetCommunity,
+    GetCommunityFeed,
+    JoinCommunity,
+    ListCommunities,
+)
+from relay.contexts.communities.infrastructure import (
+    H3CommunityReach,
+    SqlAlchemyCommunitiesUnitOfWork,
+)
+from relay.contexts.events.application import (
+    CancelRsvp,
+    CreateEvent,
+    EventsUnitOfWork,
+    GetEvent,
+    GetEvents,
+    RsvpEvent,
+)
+from relay.contexts.events.infrastructure import (
+    EventsCellNeighbourhood,
+    EventsCellStandard,
+    SqlAlchemyEventsUnitOfWork,
+)
 from relay.contexts.location.application import ResolvePostalCode
 from relay.contexts.location.infrastructure import DatasetPostalCodeDirectory, H3CellEncoder
+from relay.contexts.posts.application import CreatePost, GetFeed, GetPost, PostsUnitOfWork
+from relay.contexts.posts.infrastructure import (
+    H3CellNeighbourhood,
+    H3CellStandard,
+    SqlAlchemyPostsUnitOfWork,
+)
 from relay.shared.application import Clock, UnitOfWork
 from relay.shared.application.health import GetHealth
 from relay.shared.config import Settings
@@ -34,6 +65,11 @@ class Container:
         postal_codes: DatasetPostalCodeDirectory | None = None,
         hasher: PasswordHasher | None = None,
         tokens: TokenBroker | None = None,
+        neighbourhood: H3CellNeighbourhood | None = None,
+        cells: H3CellStandard | None = None,
+        reach: H3CommunityReach | None = None,
+        events_neighbourhood: EventsCellNeighbourhood | None = None,
+        events_cells: EventsCellStandard | None = None,
     ) -> None:
         self.settings = settings
         self.session_factory = session_factory
@@ -43,12 +79,31 @@ class Container:
         # Long-lived and stateless, so one of each for the process.
         self.hasher = hasher or auth.BcryptPasswordHasher()
         self.tokens = tokens or auth.JwtTokenBroker(settings.secret_key, self.clock)
+        # How far a feed reaches, in cells. Same cut the client sends its cell with.
+        self.neighbourhood = neighbourhood or H3CellNeighbourhood()
+        # What counts as a cell at all, so nothing is filed where no feed will look.
+        self.cells = cells or H3CellStandard()
+        # Whether one community's radius reaches a given cell. Same cut again.
+        self.reach = reach or H3CommunityReach()
+        # The events context asks H3 the same two questions and answers them itself,
+        # so that changing how far a feed reaches is never also a change to what is on.
+        self.events_neighbourhood = events_neighbourhood or EventsCellNeighbourhood()
+        self.events_cells = events_cells or EventsCellStandard()
 
     def unit_of_work(self) -> UnitOfWork:
         return SqlAlchemyUnitOfWork(self.session_factory)
 
     def auth_unit_of_work(self) -> AuthUnitOfWork:
         return auth.SqlAlchemyAuthUnitOfWork(self.session_factory)
+
+    def posts_unit_of_work(self) -> PostsUnitOfWork:
+        return SqlAlchemyPostsUnitOfWork(self.session_factory)
+
+    def communities_unit_of_work(self) -> CommunitiesUnitOfWork:
+        return SqlAlchemyCommunitiesUnitOfWork(self.session_factory)
+
+    def events_unit_of_work(self) -> EventsUnitOfWork:
+        return SqlAlchemyEventsUnitOfWork(self.session_factory)
 
     def get_health(self) -> GetHealth:
         return GetHealth(version=self.settings.version)
@@ -81,3 +136,57 @@ class Container:
 
     def _issue_tokens(self, uow: AuthUnitOfWork) -> IssueTokens:
         return IssueTokens(tokens=self.tokens, clock=self.clock, uow=uow)
+
+    def get_create_post(self) -> CreatePost:
+        return CreatePost(uow=self.posts_unit_of_work(), clock=self.clock, cells=self.cells)
+
+    def get_feed(self) -> GetFeed:
+        return GetFeed(uow=self.posts_unit_of_work(), neighbourhood=self.neighbourhood)
+
+    def get_post(self) -> GetPost:
+        return GetPost(uow=self.posts_unit_of_work())
+
+    def get_create_community(self) -> CreateCommunity:
+        return CreateCommunity(
+            uow=self.communities_unit_of_work(), clock=self.clock, cells=self.cells
+        )
+
+    def get_list_communities(self) -> ListCommunities:
+        return ListCommunities(
+            uow=self.communities_unit_of_work(), cells=self.cells, reach=self.reach
+        )
+
+    def get_community(self) -> GetCommunity:
+        return GetCommunity(uow=self.communities_unit_of_work())
+
+    def get_community_feed(self) -> GetCommunityFeed:
+        return GetCommunityFeed(uow=self.communities_unit_of_work())
+
+    def get_join_community(self) -> JoinCommunity:
+        return JoinCommunity(
+            uow=self.communities_unit_of_work(),
+            clock=self.clock,
+            cells=self.cells,
+            reach=self.reach,
+        )
+
+    def get_create_event(self) -> CreateEvent:
+        return CreateEvent(
+            uow=self.events_unit_of_work(), clock=self.clock, cells=self.events_cells
+        )
+
+    def get_events(self) -> GetEvents:
+        return GetEvents(
+            uow=self.events_unit_of_work(),
+            neighbourhood=self.events_neighbourhood,
+            clock=self.clock,
+        )
+
+    def get_event(self) -> GetEvent:
+        return GetEvent(uow=self.events_unit_of_work())
+
+    def get_rsvp_event(self) -> RsvpEvent:
+        return RsvpEvent(uow=self.events_unit_of_work(), clock=self.clock)
+
+    def get_cancel_rsvp(self) -> CancelRsvp:
+        return CancelRsvp(uow=self.events_unit_of_work())

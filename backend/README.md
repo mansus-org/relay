@@ -3,11 +3,26 @@
 The Python (FastAPI) backend of Relay. It replaces the old Go node, and is
 built as a SOLID + Domain-Driven Design skeleton: one package
 per bounded context, with `api`, `application`, `domain` and `infrastructure`
-layers. Today it ships the skeleton, `GET /api/health`, and two contexts.
+layers. Today it ships the skeleton, `GET /api/health`, and five contexts.
 
-`location`: `GET /api/location/postal-code/{postal_code}` turns a Spanish postal
-code into the locality and H3 cell a feed is read from. Galicia only for now
-(`15`, `27`, `32`, `36`), and nothing about the viewer is stored.
+- `location`: `GET /api/location/postal-code/{postal_code}` turns a Spanish
+  postal code into the locality and H3 cell a feed is read from. Galicia only
+  for now (`15`, `27`, `32`, `36`), and nothing about the viewer is stored.
+- `posts`: `POST /api/posts` says something, `GET /api/feed?cell=<h3>&radius=10`
+  reads a locality newest-first, `GET /api/posts/{id}` reads one post. A post
+  lives in an H3 resolution-8 cell, or in no locality at all.
+- `communities`: `GET /api/communities?cell=<h3>` lists the communities whose own
+  radius reaches where you are, `POST /api/communities` founds one, `GET
+  /api/communities/{id}` reads one, `GET /api/communities/{id}/feed` reads its
+  posts (members only), `POST /api/communities/{id}/join` joins it from a cell —
+  which is refused if you are standing outside its radius. A member who joined
+  under a pseudonym is named by it on that feed and nowhere else.
+- `events`: `POST /api/events` plans one, `GET /api/events?cell=<h3>&radius=10`
+  reads what is on soonest-first (`from=<date|instant|past>` moves the start),
+  `GET /api/events/{id}` reads one with how many are going, `POST
+  /api/events/{id}/rsvp` says you are going and `DELETE` the same gives the place
+  back. An event is its own row with a time and a place, filed under an H3 cell the
+  same way a post is.
 
 `auth` is the door:
 
@@ -42,6 +57,12 @@ uv run uvicorn relay.main:app --reload   # serve on http://localhost:8000
 curl localhost:8000/api/health           # {"status":"ok","version":"dev"} (/health works too)
 curl localhost:8000/api/location/postal-code/15001
 # {"postal_code":"15001","place_name":"A Coruña","cell":"883925cf43fffff"}
+curl 'localhost:8000/api/feed?cell=883925cf43fffff&radius=10'
+# {"posts":[],"next_cursor":null} — empty until something is said there
+curl 'localhost:8000/api/communities?cell=883925cf43fffff'
+# [] — every community whose radius reaches that cell; empty until someone founds one
+curl 'localhost:8000/api/events?cell=883925cf43fffff&radius=10'
+# {"events":[],"next_from":null} — empty until someone plans something
 uv run pytest                            # unit, integration, API tests
 ```
 

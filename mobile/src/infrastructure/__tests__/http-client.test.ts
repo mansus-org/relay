@@ -43,6 +43,8 @@ describe('Bearer token', () => {
 })
 
 describe('401 handling', () => {
+  // A 401 only means "session gone" when there was a session. Every test here is a signed-in one.
+  const signedIn = { getAccessToken: async () => 'old' }
   const needsNew: FakeHandler = (c) =>
     c.headers.get('Authorization') === 'Bearer new' ? { status: 200, data: { ok: true } } : { status: 401 }
 
@@ -58,7 +60,7 @@ describe('401 handling', () => {
 
   it('calls onUnauthorized once and does not retry when the refresh fails', async () => {
     const refreshAccessToken = jest.fn(async () => null)
-    const { http, seen, onUnauthorized } = setup(() => ({ status: 401 }), { refreshAccessToken })
+    const { http, seen, onUnauthorized } = setup(() => ({ status: 401 }), { ...signedIn, refreshAccessToken })
     await expect(http.get('/ping')).rejects.toBeInstanceOf(AxiosError)
     expect(refreshAccessToken).toHaveBeenCalledTimes(1)
     expect(seen).toHaveLength(1)
@@ -67,6 +69,7 @@ describe('401 handling', () => {
 
   it('treats a throwing refresh as a failed refresh', async () => {
     const { http, onUnauthorized } = setup(() => ({ status: 401 }), {
+      ...signedIn,
       refreshAccessToken: async () => {
         throw new Error('boom')
       },
@@ -77,7 +80,7 @@ describe('401 handling', () => {
 
   it('does not refresh a skipAuthRefresh request (login)', async () => {
     const refreshAccessToken = jest.fn(async () => 'new')
-    const { http, seen, onUnauthorized } = setup(() => ({ status: 401 }), { refreshAccessToken })
+    const { http, seen, onUnauthorized } = setup(() => ({ status: 401 }), { ...signedIn, refreshAccessToken })
     await expect(http.post('/auth/login', {}, { skipAuthRefresh: true })).rejects.toBeInstanceOf(AxiosError)
     expect(refreshAccessToken).not.toHaveBeenCalled()
     expect(onUnauthorized).not.toHaveBeenCalled()
@@ -86,7 +89,7 @@ describe('401 handling', () => {
 
   it('does not retry a second time when the retry also gets 401', async () => {
     const refreshAccessToken = jest.fn(async () => 'new')
-    const { http, seen } = setup(() => ({ status: 401 }), { refreshAccessToken })
+    const { http, seen } = setup(() => ({ status: 401 }), { ...signedIn, refreshAccessToken })
     await expect(http.get('/ping')).rejects.toBeInstanceOf(AxiosError)
     expect(refreshAccessToken).toHaveBeenCalledTimes(1)
     expect(seen).toHaveLength(2)
@@ -97,5 +100,16 @@ describe('401 handling', () => {
     const { http } = setup(() => ({ status: 500 }), { refreshAccessToken })
     await expect(http.get('/ping')).rejects.toBeInstanceOf(AxiosError)
     expect(refreshAccessToken).not.toHaveBeenCalled()
+  })
+
+  describe('with no access token (a stranger)', () => {
+    it('reports the 401 without refreshing or ending a session', async () => {
+      const refreshAccessToken = jest.fn(async () => 'new')
+      const { http, seen, onUnauthorized } = setup(() => ({ status: 401 }), { refreshAccessToken })
+      await expect(http.get('/feed')).rejects.toBeInstanceOf(AxiosError)
+      expect(refreshAccessToken).not.toHaveBeenCalled()
+      expect(onUnauthorized).not.toHaveBeenCalled()
+      expect(seen).toHaveLength(1)
+    })
   })
 })

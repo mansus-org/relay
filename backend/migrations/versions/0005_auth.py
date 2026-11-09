@@ -1,7 +1,7 @@
 """Accounts, invites and sessions: the tables auth needs.
 
-Revision ID: 0002
-Revises: 0001
+Revision ID: 0005_auth
+Revises: 0004_events
 Create Date: 2026-11-08
 """
 
@@ -10,8 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0002"
-down_revision: str | None = "0001"
+revision: str = "0005_auth"
+down_revision: str | None = "0004_events"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

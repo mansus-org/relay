@@ -6,7 +6,7 @@ from tests.fakes.auth import (
     InMemoryUserRepository,
     PlainPasswordHasher,
 )
-from tests.fakes.clock import FixedClock
+from tests.fakes.clock import FixedClock, SteppingClock
 from tests.fakes.repository import InMemoryRepository
 from tests.fakes.unit_of_work import FakeUnitOfWork
 
@@ -20,4 +20,5 @@ __all__ = [
     "InMemoryRepository",
     "InMemoryUserRepository",
     "PlainPasswordHasher",
+    "SteppingClock",
 ]
