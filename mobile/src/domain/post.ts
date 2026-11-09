@@ -65,8 +65,8 @@ export type LatLng = { readonly lat: number; readonly lng: number }
 
 export type LocationStatus = { readonly granted: boolean; readonly canAskAgain: boolean }
 
-/** Appends an older page, skipping posts already in the list. */
-export const appendPage = (current: readonly Post[], page: readonly Post[]): readonly Post[] => {
+/** Appends an older page, skipping rows already in the list — a post or an event, anything with an id. */
+export const appendPage = <T extends { id: string }>(current: readonly T[], page: readonly T[]): readonly T[] => {
   const seen = new Set(current.map((p) => p.id))
   return [...current, ...page.filter((p) => !seen.has(p.id))]
 }

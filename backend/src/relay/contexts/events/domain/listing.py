@@ -1,5 +1,6 @@
 """What is on: a page of a locality's events, and how many people are going to each."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -103,6 +104,16 @@ def _row(last: str) -> UUID:
         raise UnknownPageError("That is not a page Relay handed out.") from error
 
 
+def marker_after(events: Sequence[Event], start: ListingStart) -> ListingStart:
+    """Where the next page starts: the last row of this one, reading the same way.
+
+    Both lists a page of events is served from — a locality's and a community's — cut
+    their pages the same way, so the marker is built in one place and cannot drift.
+    """
+    last = events[-1]
+    return ListingStart(at=last.starts_at, seen_id=last.id, backwards=start.backwards)
+
+
 class EventDetails(ValueObject):
     """One event and how many members have said they are going.
 
@@ -116,6 +127,9 @@ class EventDetails(ValueObject):
     event: Event
     rsvp_count: int = 0
     user_rsvped: bool = False
+    # What the community it was filed under is called, so a list can say where an event
+    # came from instead of sending its reader to ask. None when it was filed under none.
+    community_name: str | None = None
 
 
 class EventListingPage(ValueObject):

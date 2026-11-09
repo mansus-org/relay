@@ -23,6 +23,8 @@ export const COMMUNITIES_PATH = '/communities'
 export const communityPath = (id: string) => `/communities/${encodeURIComponent(id)}`
 export const communityFeedPath = (id: string) => `${communityPath(id)}/feed`
 export const communityJoinPath = (id: string) => `${communityPath(id)}/join`
+/** What a community has on. Served by the backend (RELY-85); public, unlike the feed. */
+export const communityEventsPath = (id: string) => `${communityPath(id)}/events`
 
 // Location. Served by the backend (RELY-109).
 export const postalCodePath = (code: string) => `/location/postal-code/${encodeURIComponent(code)}`

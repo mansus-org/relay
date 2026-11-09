@@ -6,6 +6,7 @@ from relay.contexts.events.infrastructure.h3_cells import (
 )
 from relay.contexts.events.infrastructure.models import EventModel, RsvpModel
 from relay.contexts.events.infrastructure.repository import (
+    SqlAlchemyCommunities,
     SqlAlchemyEventRepository,
     SqlAlchemyRsvpRepository,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "EventsCellNeighbourhood",
     "EventsCellStandard",
     "RsvpModel",
+    "SqlAlchemyCommunities",
     "SqlAlchemyEventRepository",
     "SqlAlchemyEventsUnitOfWork",
     "SqlAlchemyRsvpRepository",

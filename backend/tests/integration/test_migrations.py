@@ -22,7 +22,7 @@ def test_the_migrations_are_one_line_and_not_a_fork() -> None:
 async def test_upgrade_head_records_revision(migrated_engine: AsyncEngine) -> None:
     async with migrated_engine.connect() as conn:
         version = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one()
-    assert version == "0006_moderation"
+    assert version == "0007_event_communities"
 
 
 async def test_upgrade_creates_the_auth_tables(migrated_engine: AsyncEngine) -> None:
@@ -130,9 +130,12 @@ async def test_the_events_table_is_there_with_the_columns_a_listing_needs(
         "venue_name",
         "details",
         "location_cell",
+        "community_id",
         "created_at",
     }
     # Where and when it ends are the host's to leave out; what and when it starts are not.
+    # Which community it belongs to is theirs to leave out too: a plan can be a place's
+    # and nobody's group.
     assert {column["name"] for column in columns if not column["nullable"]} == {
         "id",
         "host_id",
@@ -153,6 +156,21 @@ async def test_the_events_index_walks_the_cell_then_the_clock(
         index for index in indexes if index["name"] == "ix_events_location_cell_starts_at"
     )
     assert listing["column_names"] == ["location_cell", "starts_at"]
+
+
+async def test_the_events_index_walks_the_community_then_the_clock(
+    migrated_engine: AsyncEngine,
+) -> None:
+    """A community's list is the same one query with the other column first: this
+    community, then forward in time from wherever the page starts.
+    """
+    async with migrated_engine.connect() as conn:
+        indexes = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_indexes("events"))
+
+    listing = next(
+        index for index in indexes if index["name"] == "ix_events_community_id_starts_at"
+    )
+    assert listing["column_names"] == ["community_id", "starts_at"]
 
 
 async def test_a_place_is_taken_against_one_event_and_one_member_once(

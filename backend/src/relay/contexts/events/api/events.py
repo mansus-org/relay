@@ -1,9 +1,9 @@
 """The HTTP edge of the events context: plan something, see what is on, say you are going.
 
-Three operations and no more: an event is created by its host, read by anyone, and
-RSVP'd to by a member — including taking the hand back down. There is no edit and no
-list of who is coming, because neither is decided yet and an event that needs them is a
-different product than the one being built.
+Four operations and no more: an event is created by its host, read by anyone, RSVP'd to by
+a member — including taking the hand back down — and read back a second way, as one
+community's list. There is no edit and no list of who is coming, because neither is decided
+yet and an event that needs them is a different product than the one being built.
 """
 
 from datetime import datetime
@@ -17,11 +17,13 @@ from relay.container import Container
 from relay.contexts.events.application import (
     CancelRsvp,
     CreateEvent,
+    GetCommunityEvents,
     GetEvent,
     GetEvents,
     RsvpEvent,
 )
 from relay.contexts.events.domain.cells import DEFAULT_RADIUS_KM, CellError
+from relay.contexts.events.domain.community import CommunityNotFoundError, NotAMemberError
 from relay.contexts.events.domain.event import (
     MAX_DETAILS_LENGTH,
     MAX_TITLE_LENGTH,
@@ -86,6 +88,10 @@ class EventResponse(BaseModel):
     `starts_at` and `ends_at` are instants with a zone, so a phone renders an 19:30
     event at 19:30 wherever the phone is. `rsvp_count` is the whole tally: there is no
     list of names to page through, and a number is what a card shows.
+
+    `community_id` is the community it was filed under and `community_name` is what that
+    community is called, so a list can say "Kreuzberg" beside the plan without a second
+    request per row. Both are null for an event that belongs to no community.
     """
 
     id: str
@@ -97,6 +103,8 @@ class EventResponse(BaseModel):
     venue_name: str | None = None
     details: str | None = None
     location_cell: str | None = None
+    community_id: str | None = None
+    community_name: str | None = None
     rsvp_count: int = 0
 
     @classmethod
@@ -112,6 +120,8 @@ class EventResponse(BaseModel):
             venue_name=event.venue_name,
             details=event.details,
             location_cell=event.location_cell,
+            community_id=None if event.community_id is None else str(event.community_id),
+            community_name=details.community_name,
             rsvp_count=details.rsvp_count,
         )
 
@@ -176,7 +186,8 @@ class NewEventRequest(BaseModel):
     not a field-error shape of its own. An `ends_at` sent as blanks is a field cleared:
     the same as not sending it. `location_cell` is where it happens, in H3: leaving it
     out means the event reaches no locality's list, and Relay does not guess a locality
-    from the venue's text.
+    from the venue's text. `community_id` is who it happens for, and leaving it out is
+    a plan that belongs to no community — a place's event and not a group's.
     """
 
     title: str
@@ -185,6 +196,7 @@ class NewEventRequest(BaseModel):
     venue_name: str | None = None
     details: str | None = None
     location_cell: str | None = None
+    community_id: UUID | None = None
 
 
 def get_create_event(
@@ -203,6 +215,12 @@ def get_event_use_case(
     container: Annotated[Container, Depends(get_container)],
 ) -> GetEvent:
     return container.get_event()
+
+
+def get_community_events_use_case(
+    container: Annotated[Container, Depends(get_container)],
+) -> GetCommunityEvents:
+    return container.get_community_events()
 
 
 def get_rsvp_event(
@@ -236,6 +254,8 @@ def get_cancel_rsvp(
             "wrong way round, or `location_cell` was not a resolution-8 H3 cell."
         },
         401: {"description": "No bearer token to plan as."},
+        403: {"description": "You are not a member of the community it was filed under."},
+        404: {"description": "There is no community with the id it was filed under."},
         422: {"description": "A field was not a string at all."},
     },
 )
@@ -253,9 +273,16 @@ async def create_event(
             venue_name=payload.venue_name,
             details=payload.details,
             location_cell=payload.location_cell,
+            community_id=payload.community_id,
         )
     except (ValidationError, CellError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except CommunityNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except NotAMemberError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    # No community to name beside it: the one read that would have fetched it is not worth
+    # making for the event that was just written.
     return EventResponse.from_domain(EventDetails(event=event))
 
 
@@ -297,6 +324,53 @@ async def read_events(
         # A date this list never handed out is the client's mistake to hear about,
         # not a 500 to retry forever.
         raise HTTPException(status_code=400, detail=str(error)) from error
+    return EventListResponse.from_domain(page)
+
+
+@router.get(
+    "/communities/{community_id}/events",
+    response_model=EventListResponse,
+    summary="What a community has on",
+    description=(
+        "The events its members filed under it, starting at or after `from` — the same "
+        "`from` as the nearby list takes, so `past` reads backwards through what the "
+        "community has already been to and `next_from` pages through the rest. The same "
+        "ring applies here as everywhere else: only events whose cell is within `radius` "
+        "km of `cell` are on the page, because a community being people does not make "
+        "its plans visible an hour away, and one that named no cell is on no list. "
+        "Public like every other read of an event; being a member is what lets you put "
+        "one on the list, not what lets you read it."
+    ),
+    responses={
+        400: {"description": "The cell, the radius, or `from` was not usable."},
+        404: {"description": "No community with that id."},
+    },
+)
+async def read_community_events(
+    community_id: UUID,
+    cell: Annotated[str, Query(description="Your current H3 resolution-8 cell.")],
+    use_case: Annotated[GetCommunityEvents, Depends(get_community_events_use_case)],
+    radius: Annotated[
+        float,
+        Query(description="How far out to read, in km: between 0 and 25."),
+    ] = DEFAULT_RADIUS_KM,
+    from_: Annotated[
+        str | None,
+        Query(
+            alias="from",
+            description="A date, an instant, `past` for what already started (most "
+            "recent first), or the `next_from` of the last page. Default: now, forwards.",
+        ),
+    ] = None,
+) -> EventListResponse:
+    try:
+        page = await use_case.execute(
+            community_id=community_id, cell=cell, radius_km=radius, from_=from_
+        )
+    except (ValidationError, CellError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except CommunityNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     return EventListResponse.from_domain(page)
 
 

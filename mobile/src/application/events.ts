@@ -5,6 +5,7 @@ import {
   placeEvent,
   type ApiError,
   type CellEncoder,
+  type EventPage,
   type EventDetail,
   type EventError,
   type EventRepository,
@@ -32,6 +33,32 @@ export const makeLoadNearbyEvents =
     const center = cellEncoder.centerOf(cell)
     return ok({
       center,
+      nextFrom: page.value.nextFrom,
+      events: page.value.events.map((event) => placeEvent(event, cellEncoder, center)),
+    })
+  }
+
+/**
+ * One page of what a community has on, soonest first. The ring is the same one every other read uses:
+ * being in the community is what lets you file a plan, not what lets you see one, so what your
+ * community put an hour away is not on your page. `from` is the previous page's `next_from`, or
+ * 'past' to read what it has been to.
+ */
+export const makeLoadCommunityEvents =
+  ({ eventRepository, cellEncoder }: Deps) =>
+  async ({
+    communityId,
+    cell,
+    from,
+  }: {
+    communityId: string
+    cell: string
+    from?: string
+  }): Promise<Result<EventPage<NearbyEvent>, EventError>> => {
+    const page = await eventRepository.listForCommunity({ communityId, cell, from })
+    if (!page.ok) return err(page.error)
+    const center = cellEncoder.centerOf(cell)
+    return ok({
       nextFrom: page.value.nextFrom,
       events: page.value.events.map((event) => placeEvent(event, cellEncoder, center)),
     })

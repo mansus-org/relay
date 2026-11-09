@@ -27,8 +27,14 @@ class GetEvent:
                 if member_id is not None
                 else None
             )
+            names = (
+                await self._uow.communities.names_for([event.community_id])
+                if event.community_id is not None
+                else {}
+            )
             return EventDetails(
                 event=event,
                 rsvp_count=await self._uow.rsvps.count_for(event_id),
                 user_rsvped=going is not None,
+                community_name=names.get(event.community_id) if event.community_id else None,
             )

@@ -25,6 +25,31 @@ class EventRepository(Repository[Event, UUID]):
         none of the cells, so it never comes back.
         """
 
+    @abstractmethod
+    async def page_for_community(
+        self, *, community_id: UUID, cells: Iterable[str], start: ListingStart, limit: int
+    ) -> list[Event]:
+        """The same pages, read out of one community instead of one neighbourhood.
+
+        The ring is the same rule here as it is on every other list: being a member is
+        what lets you put an event on a community's list, never what lets you see one,
+        so a plan an hour away stays out of sight from the member who is an hour away
+        from it. An event that named no cell is in none of them, so it is on neither list.
+        """
+
+    @abstractmethod
+    async def recent_for_community(
+        self, *, community_id: UUID, cells: Iterable[str], limit: int
+    ) -> list[Event]:
+        """The newest things one community filed, whatever time they are for.
+
+        A feed order and not a calendar one: a feed is what a community has lately said,
+        so this is ordered by when a plan was put up and not by when it happens, and one
+        that has already happened stays until something newer pushes it off. The ring is
+        the same rule as on the calendar list, because a plan nobody can walk to is not
+        worth announcing to them either.
+        """
+
 
 class RsvpRepository(Repository[Rsvp, UUID]):
     """Who is going to what."""
@@ -46,6 +71,30 @@ class RsvpRepository(Repository[Rsvp, UUID]):
         """How many are going to each of these, in one read.
 
         An event nobody is going to has no entry, and the caller reads that as none.
+        """
+
+
+class Communities(ABC):
+    """The read side of the communities context, as far as events is allowed to see it.
+
+    Read-only, and the only way this context learns anything about a community: the
+    communities context keeps its name, its members and its reach to itself.
+    """
+
+    @abstractmethod
+    async def names_for(self, community_ids: Iterable[UUID]) -> dict[UUID, str]:
+        """The name of each of these, in one read.
+
+        An id with no name beside it is an id no community owns, which is how a caller
+        tells a community that was never there from one that is simply empty.
+        """
+
+    @abstractmethod
+    async def is_member(self, *, community_id: UUID, member_id: UUID) -> bool:
+        """Whether this person is one of the people who make up this community.
+
+        False for a community that does not exist, and the caller decides whether that
+        deserves a different message from one it does.
         """
 
 

@@ -1,7 +1,7 @@
 import { act, create } from 'react-test-renderer'
 
 import type { UseCases } from '../../application'
-import { err, ok, type NearbyCommunity } from '../../domain'
+import { err, ok, type Event, type NearbyCommunity } from '../../domain'
 import { makeCommunity, makePost } from '../../testing/fakes'
 import { UseCasesProvider } from '../use-cases'
 import { useCommunity } from '../use-community'
@@ -72,7 +72,27 @@ describe('useNearbyCommunities', () => {
 })
 
 describe('useCommunity', () => {
-  function setup(opts: { community?: Partial<NearbyCommunity>; joinResult?: 'ok' | 'out-of-range'; location?: boolean } = {}) {
+  const event = (id: string): Event => ({
+    id,
+    hostId: 'u-1',
+    hostName: 'Ana',
+    title: `Event ${id}`,
+    startsAt: '2026-11-25T19:30:00+00:00',
+    endsAt: null,
+    venueName: null,
+    details: null,
+    locationCell: null,
+    communityId: 'c1',
+    communityName: 'Vila',
+    rsvpCount: 2,
+  })
+
+  function setup(opts: {
+    community?: Partial<NearbyCommunity>
+    joinResult?: 'ok' | 'out-of-range'
+    location?: boolean
+    events?: 'ok' | 'pages' | 'error'
+  } = {}) {
     let member = opts.community?.isMember ?? false
     const resolveLocation = jest.fn(async () => (opts.location === false ? err({ kind: 'denied' as const, canAskAgain: true }) : located))
     const loadCommunity = jest.fn(async () => ok(nearby('c1', { ...opts.community, isMember: member })))
@@ -81,13 +101,24 @@ describe('useCommunity', () => {
         ? ok({ posts: cursor ? [makePost('c')] : [makePost('a'), makePost('b')], nextCursor: cursor ? null : 'next' })
         : err('forbidden' as const),
     )
+    const loadCommunityEvents = jest.fn(async ({ from }: { communityId: string; cell?: string | null; from?: string }) => {
+      if (opts.events === 'error') return err('network' as const)
+      if (opts.events === 'pages') return ok({ events: from ? [event('3')] : [event('1'), event('2')], nextFrom: from ? null : 'next' })
+      return ok({ events: [event('1')], nextFrom: null })
+    })
     const joinCommunity = jest.fn(async () => {
       if (opts.joinResult === 'out-of-range') return err('out-of-range' as const)
       member = true
       return ok(undefined)
     })
-    const mounted = mount(() => useCommunity('c1'), { resolveLocation, loadCommunity, loadCommunityFeed, joinCommunity } as unknown as Partial<UseCases>)
-    return { ...mounted, loadCommunity, loadCommunityFeed, joinCommunity }
+    const mounted = mount(() => useCommunity('c1'), {
+      resolveLocation,
+      loadCommunity,
+      loadCommunityFeed,
+      loadCommunityEvents,
+      joinCommunity,
+    } as unknown as Partial<UseCases>)
+    return { ...mounted, loadCommunity, loadCommunityFeed, loadCommunityEvents, joinCommunity }
   }
 
   it('does not load the feed of a community the user has not joined', async () => {
@@ -171,6 +202,44 @@ describe('useCommunity', () => {
     await act(async () => t.result.current.refresh())
     expect(t.result.current.state.posts.map((p) => p.id)).toEqual(['a', 'b'])
     expect(t.result.current.state.refreshing).toBe(false)
+  })
+
+  it('shows the community’s events to anyone, member or not', async () => {
+    const t = setup()
+    await flush()
+    expect(t.loadCommunityEvents).toHaveBeenCalledWith({ communityId: 'c1', cell: 'cell-1' })
+    expect(t.result.current.state.events.map((e) => e.id)).toEqual(['1'])
+    expect(t.result.current.state.eventsLoaded).toBe(true)
+  })
+
+  it('pages the events with the cursor it was handed, and does not ask again once there is no more', async () => {
+    const t = setup({ events: 'pages' })
+    await flush()
+    expect(t.result.current.state.events.map((e) => e.id)).toEqual(['1', '2'])
+    await act(async () => t.result.current.loadMoreEvents())
+    expect(t.loadCommunityEvents).toHaveBeenLastCalledWith({ communityId: 'c1', cell: 'cell-1', from: 'next' })
+    expect(t.result.current.state.events.map((e) => e.id)).toEqual(['1', '2', '3'])
+    await act(async () => t.result.current.loadMoreEvents())
+    expect(t.loadCommunityEvents).toHaveBeenCalledTimes(2)
+  })
+
+  it('says the events did not load, and tries again on a refresh', async () => {
+    const t = setup({ events: 'error' })
+    await flush()
+    expect(t.result.current.state).toMatchObject({ eventsLoaded: true, eventsFailed: true, events: [] })
+    t.loadCommunityEvents.mockResolvedValue(ok({ events: [event('9')], nextFrom: null }))
+    await act(async () => t.result.current.refresh())
+    expect(t.result.current.state.events.map((e) => e.id)).toEqual(['9'])
+    expect(t.result.current.state.eventsFailed).toBe(false)
+  })
+
+  it('leaves the events alone when there is no position to read them from', async () => {
+    const t = setup({ location: false })
+    await flush()
+    expect(t.loadCommunityEvents).not.toHaveBeenCalled()
+    expect(t.result.current.state).toMatchObject({ eventsLoaded: true, eventsFailed: false, events: [] })
+    await act(async () => t.result.current.loadMoreEvents())
+    expect(t.loadCommunityEvents).not.toHaveBeenCalled()
   })
 })
 

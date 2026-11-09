@@ -1,6 +1,6 @@
 """In-memory stand-ins for the events ports, so a use-case test never touches a database."""
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -11,6 +11,7 @@ from relay.contexts.events.domain.listing import ListingStart
 from relay.contexts.events.domain.ports import (
     CellNeighbourhood,
     CellStandard,
+    Communities,
     EventRepository,
     RsvpRepository,
 )
@@ -31,6 +32,7 @@ def an_event(
     starts_at: datetime = STARTS,
     host_id: UUID | None = None,
     planned_at: datetime = PLANNED,
+    community_id: UUID | None = None,
 ) -> Event:
     """An event a test can name in one line."""
     return Event.plan(
@@ -39,6 +41,7 @@ def an_event(
         starts_at=starts_at,
         created_at=planned_at,
         location_cell=cell,
+        community_id=community_id,
     )
 
 
@@ -66,6 +69,35 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
         exactly at it on the forwards page, not the backwards one.
         """
         wanted = set(cells)
+        return self._page(lambda event: event.location_cell in wanted, start, limit)
+
+    async def page_for_community(
+        self, *, community_id: UUID, cells: Iterable[str], start: ListingStart, limit: int
+    ) -> list[Event]:
+        """The same two cuts the table makes: whose list it is, and the reader's ring."""
+        wanted = set(cells)
+        return self._page(
+            lambda event: event.community_id == community_id and event.location_cell in wanted,
+            start,
+            limit,
+        )
+
+    async def recent_for_community(
+        self, *, community_id: UUID, cells: Iterable[str], limit: int
+    ) -> list[Event]:
+        """Newest filed first, same two cuts as the calendar list makes."""
+        wanted = set(cells)
+        found = [
+            event
+            for event in self._items.values()
+            if event.community_id == community_id and event.location_cell in wanted
+        ]
+        found.sort(key=lambda event: (event.created_at, event.id), reverse=True)
+        return found[:limit]
+
+    def _page(
+        self, belongs: Callable[[Event], bool], start: ListingStart, limit: int
+    ) -> list[Event]:
         seen_id = start.seen_id
 
         def on_this_page(event: Event) -> bool:
@@ -79,11 +111,7 @@ class InMemoryEventRepository(InMemoryRepository[Event], EventRepository):
             seen = (event.starts_at, event.id)
             return seen < wall if start.backwards else seen > wall
 
-        found = [
-            event
-            for event in self._items.values()
-            if event.location_cell in wanted and on_this_page(event)
-        ]
+        found = [event for event in self._items.values() if belongs(event) and on_this_page(event)]
         found.sort(key=lambda event: (event.starts_at, event.id), reverse=start.backwards)
         return found[:limit]
 
@@ -123,6 +151,31 @@ class InMemoryRsvpRepository(InMemoryRepository[Rsvp], RsvpRepository):
         return {event_id: await self.count_for(event_id) for event_id in event_ids}
 
 
+class InMemoryCommunities(Communities):
+    """The communities a test named, and who it said is in them.
+
+    Membership is a set the test fills, because the rule the use case cares about is
+    "is this person in it", and no fake needs to model how they got there.
+    """
+
+    def __init__(
+        self, names: dict[UUID, str] | None = None, members: dict[UUID, set[UUID]] | None = None
+    ) -> None:
+        self.names = names or {}
+        self.members = members or {}
+
+    def found(self, community_id: UUID, name: str, *members: UUID) -> None:
+        """A community exists, with whoever is in it."""
+        self.names[community_id] = name
+        self.members.setdefault(community_id, set()).update(members)
+
+    async def names_for(self, community_ids: Iterable[UUID]) -> dict[UUID, str]:
+        return {cid: self.names[cid] for cid in community_ids if cid in self.names}
+
+    async def is_member(self, *, community_id: UUID, member_id: UUID) -> bool:
+        return member_id in self.members.get(community_id, set())
+
+
 class FixedNeighbourhood(CellNeighbourhood):
     """A neighbourhood a test hands the rings itself, so no test depends on H3."""
 
@@ -148,7 +201,13 @@ class FixedCells(CellStandard):
 class FakeEventsUnitOfWork(FakeUnitOfWork, EventsUnitOfWork):
     """A transaction whose events and places are the ones a test passed in."""
 
-    def __init__(self, events: Iterable[Event] = (), rsvps: Iterable[Rsvp] = ()) -> None:
+    def __init__(
+        self,
+        events: Iterable[Event] = (),
+        rsvps: Iterable[Rsvp] = (),
+        communities: InMemoryCommunities | None = None,
+    ) -> None:
         super().__init__()
         self.events = InMemoryEventRepository(events)
         self.rsvps = InMemoryRsvpRepository(rsvps)
+        self.communities = communities or InMemoryCommunities()

@@ -4,11 +4,13 @@ import { AppState } from 'react-native'
 import type { DetailedEvent } from '../application'
 import {
   EVENTS_RADIUS_KM,
+  createEventMessage,
   draftToPayload,
   eventErrorMessage,
   eventsListMessage,
   todayParam,
   validateEventDraft,
+  type Community,
   type DraftErrors,
   type EventDraft,
   type LatLng,
@@ -187,7 +189,7 @@ export function useEventDetail(id: string) {
   return { state, toggle }
 }
 
-const emptyDraft: EventDraft = { title: '', startsAt: null, endsAt: null, venueName: '', details: '', locationCell: null }
+const emptyDraft: EventDraft = { title: '', startsAt: null, endsAt: null, venueName: '', details: '', locationCell: null, communityId: null }
 
 /** The first nudge on an empty form lands on an evening tomorrow, which is what most of these are. */
 const defaultStart = (): Date => {
@@ -204,12 +206,14 @@ export type EventDraftState = {
   error: string | null
   /** The place the form defaulted to, so the screen can say where it put the event. */
   placeName: string | null
+  /** The communities you belong to, and so can file an event under. Empty when you are in none. */
+  communities: readonly Community[]
 }
 
 /** Making an event. The cell defaults to where you are standing; the server refuses a fake one. */
 export function useCreateEvent() {
-  const { resolveLocation, createEvent } = useUseCases()
-  const [state, setState] = useState<EventDraftState>({ draft: emptyDraft, errors: {}, busy: false, error: null, placeName: null })
+  const { resolveLocation, listJoinedCommunities, createEvent } = useUseCases()
+  const [state, setState] = useState<EventDraftState>({ draft: emptyDraft, errors: {}, busy: false, error: null, placeName: null, communities: [] })
 
   useEffect(() => {
     let cancelled = false
@@ -218,12 +222,20 @@ export function useCreateEvent() {
       if (cancelled || !location.ok) return
       setState((s) => ({ ...s, draft: { ...s.draft, locationCell: location.value.cell }, placeName: location.value.placeName }))
     })()
+    void listJoinedCommunities().then((result) => {
+      if (!cancelled && result.ok) setState((s) => ({ ...s, communities: result.value }))
+    })
     return () => {
       cancelled = true
     }
-  }, [resolveLocation])
+  }, [resolveLocation, listJoinedCommunities])
 
   const set = useCallback((next: Partial<EventDraft>) => setState((s) => ({ ...s, draft: { ...s.draft, ...next }, errors: {} })), [])
+  /** Filing it under one of yours, or un-filing it. Tapping the one that is on takes it back off. */
+  const toggleCommunity = useCallback(
+    (id: string) => setState((s) => ({ ...s, draft: { ...s.draft, communityId: s.draft.communityId === id ? null : id } })),
+    [],
+  )
   /** Steps the start, and the end along with it, so an evening does not get torn apart by one tap. */
   const shiftStart = useCallback(
     (ms: number) =>
@@ -249,9 +261,9 @@ export function useCreateEvent() {
       setState((s) => ({ ...s, busy: false }))
       return result.value.id
     }
-    setState((s) => ({ ...s, busy: false, error: eventErrorMessage(result.error) }))
+    setState((s) => ({ ...s, busy: false, error: createEventMessage(result.error) }))
     return null
   }, [state.draft, createEvent])
 
-  return { state, set, shiftStart, submit }
+  return { state, set, shiftStart, toggleCommunity, submit }
 }

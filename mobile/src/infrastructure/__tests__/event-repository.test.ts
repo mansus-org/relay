@@ -47,8 +47,34 @@ describe('event repository', () => {
       venueName: null,
       details: null,
       locationCell: null,
+      communityId: null,
+      communityName: null,
       rsvpCount: 4,
     })
+  })
+
+  it('keeps the community an event is filed under', async () => {
+    const { repository } = setup(() => ({ status: 200, data: { events: [dto('e-1', { community_id: 'c-1', community_name: 'Vila Madalena' })] } }))
+    const result = await repository.list({ cell: 'abc', radiusKm: 10 })
+
+    expect(result.ok && result.value.events[0]).toMatchObject({ communityId: 'c-1', communityName: 'Vila Madalena' })
+  })
+
+  it('reads the events filed under one community, from where the reader is standing', async () => {
+    const { repository, seen } = setup(() => ({ status: 200, data: { events: [dto('e-1')], next_from: '2026-11-26T19:30:00+00:00|e-1' } }))
+    const result = await repository.listForCommunity({ communityId: 'c-1', cell: 'abc', from: '2026-11-25' })
+
+    expect(seen[0]!.url).toBe('/communities/c-1/events')
+    expect(seen[0]!.params).toEqual({ cell: 'abc', from: '2026-11-25' })
+    expect(result.ok && result.value).toEqual({ events: [expect.objectContaining({ id: 'e-1' })], nextFrom: '2026-11-26T19:30:00+00:00|e-1' })
+  })
+
+  it('says the community is gone rather than showing an empty list of its events', async () => {
+    expect(await setup(() => ({ status: 404 })).repository.listForCommunity({ communityId: 'c-1', cell: 'abc' })).toEqual({ ok: false, error: 'not-found' })
+  })
+
+  it('does not call a dead network an empty list', async () => {
+    expect(await setup(() => ({ status: 500 })).repository.listForCommunity({ communityId: 'c-1', cell: 'abc' })).toEqual({ ok: false, error: 'unexpected' })
   })
 
   it('takes an empty list as an empty page, not a broken one', async () => {
@@ -89,6 +115,24 @@ describe('event repository', () => {
       venue_name: 'The back room',
       details: 'Bring something.',
     })
+  })
+
+  it('sends the community it is filed under, and nothing when it is not', async () => {
+    const filed = setup(() => ({ status: 201, data: dto('e-2') }))
+    const loose = setup(() => ({ status: 201, data: dto('e-2') }))
+    await filed.repository.create({ title: 'Sunday market', startsAt: '2026-11-25T19:30:00Z', communityId: 'c-1' })
+    await loose.repository.create({ title: 'Sunday market', startsAt: '2026-11-25T19:30:00Z' })
+
+    expect(JSON.parse(filed.seen[0]!.data)).toEqual({ title: 'Sunday market', starts_at: '2026-11-25T19:30:00Z', community_id: 'c-1' })
+    expect(JSON.parse(loose.seen[0]!.data)).not.toHaveProperty('community_id')
+  })
+
+  it('says who turned the event away when it was the community', async () => {
+    const stranger = setup(() => ({ status: 403 }))
+    const vanished = setup(() => ({ status: 404 }))
+
+    expect(await stranger.repository.create({ title: 'Sunday market', startsAt: '2026-11-25T19:30:00Z', communityId: 'c-1' })).toEqual({ ok: false, error: 'not-a-member' })
+    expect(await vanished.repository.create({ title: 'Sunday market', startsAt: '2026-11-25T19:30:00Z', communityId: 'c-1' })).toEqual({ ok: false, error: 'not-found' })
   })
 
   it('answers with the head count after the place was saved', async () => {

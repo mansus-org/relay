@@ -1,6 +1,7 @@
 import { makeFakeCellEncoder } from '../../testing/fakes'
 import {
   clusterEvents,
+  createEventMessage,
   draftToPayload,
   eventDayLabel,
   eventErrorMessage,
@@ -40,6 +41,8 @@ const makeEvent = (id: string, over: Partial<Event> = {}): Event => ({
   venueName: null,
   details: null,
   locationCell: 'cell:41.15,-8.61',
+  communityId: null,
+  communityName: null,
   rsvpCount: 3,
   ...over,
 })
@@ -133,7 +136,7 @@ describe('clusterEvents', () => {
 })
 
 describe('validateEventDraft', () => {
-  const draft: EventDraft = { title: 'Sunday market', startsAt: new Date(2026, 10, 26, 19, 0), endsAt: null, venueName: '', details: '', locationCell: 'cell:41.15,-8.61' }
+  const draft: EventDraft = { title: 'Sunday market', startsAt: new Date(2026, 10, 26, 19, 0), endsAt: null, venueName: '', details: '', locationCell: 'cell:41.15,-8.61', communityId: null }
 
   it('wants a name and a start', () => {
     expect(validateEventDraft({ ...draft, title: '   ' }).title).toBeTruthy()
@@ -154,10 +157,15 @@ describe('validateEventDraft', () => {
 })
 
 describe('draftToPayload', () => {
-  const draft: EventDraft = { title: '  Sunday market ', startsAt: new Date(2026, 10, 26, 19, 0), endsAt: null, venueName: '  ', details: '', locationCell: 'cell:41.15,-8.61' }
+  const draft: EventDraft = { title: '  Sunday market ', startsAt: new Date(2026, 10, 26, 19, 0), endsAt: null, venueName: '  ', details: '', locationCell: 'cell:41.15,-8.61', communityId: null }
 
   it('sends only what the host actually filled in', () => {
     expect(draftToPayload(draft)).toEqual({ title: 'Sunday market', startsAt: expect.any(String), locationCell: 'cell:41.15,-8.61' })
+  })
+
+  it('sends the community it is filed under, and nothing when it is filed with none', () => {
+    expect(draftToPayload({ ...draft, communityId: 'c-1' }).communityId).toBe('c-1')
+    expect(draftToPayload(draft)).not.toHaveProperty('communityId')
   })
 
   it('sends an instant with a zone, which is what the server parses', () => {
@@ -198,6 +206,21 @@ describe('eventErrorMessage', () => {
   it('names the list when the list is what failed', () => {
     expect(eventsListMessage('network')).toMatch(/Relay/i)
     expect(eventsListMessage('unexpected')).toMatch(/try again/i)
+  })
+})
+
+describe('createEventMessage', () => {
+  it('blames the community, not an event that does not exist yet', () => {
+    expect(createEventMessage('not-found')).toMatch(/community/i)
+    expect(createEventMessage('not-found')).not.toMatch(/event is gone/i)
+  })
+
+  it('says you are not in that community, in words you can act on', () => {
+    expect(createEventMessage('not-a-member')).toMatch(/community/i)
+  })
+
+  it('still knows a dead network when it meets one', () => {
+    expect(createEventMessage('network')).toMatch(/connection/i)
   })
 })
 

@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from relay.contexts.events.application.unit_of_work import EventsUnitOfWork
+from relay.contexts.events.domain.community import CommunityNotFoundError, NotAMemberError
 from relay.contexts.events.domain.event import Event
 from relay.contexts.events.domain.ports import CellStandard
 from relay.shared.application import Clock
@@ -27,6 +28,7 @@ class CreateEvent:
         venue_name: str | None = None,
         details: str | None = None,
         location_cell: str | None = None,
+        community_id: UUID | None = None,
     ) -> Event:
         event = Event.plan(
             host_id=host_id,
@@ -37,11 +39,28 @@ class CreateEvent:
             venue_name=venue_name,
             details=details,
             location_cell=self._filed_under(location_cell),
+            community_id=community_id,
         )
         async with self._uow:
+            if community_id is not None:
+                await self._belonging_to(host_id, community_id)
             await self._uow.events.add(event)
             await self._uow.commit()
         return event
+
+    async def _belonging_to(self, host_id: UUID, community_id: UUID) -> None:
+        """Check the host is one of the people this event would be filed under.
+
+        An event filed under a community is on that community's list, where every one of
+        its members will read it, so a stranger cannot put one there. A community that
+        does not exist fails the same test and is said plainly: a host following a link
+        copied out of a note deserves to be told which half of it was wrong.
+        """
+        if not await self._uow.communities.names_for([community_id]):
+            raise CommunityNotFoundError(f"No community {community_id} to file an event under.")
+        going = await self._uow.communities.is_member(community_id=community_id, member_id=host_id)
+        if not going:
+            raise NotAMemberError("Only members can plan an event for a community.")
 
     def _filed_under(self, cell: str | None) -> str | None:
         """Where it is happening, in the form a list of events reads back.

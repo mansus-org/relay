@@ -84,6 +84,10 @@ class Event(Entity):
     venue_name: str | None = None
     details: str | None = None
     location_cell: str | None = None
+    # The community it was filed under, if it was. A community is people rather than a
+    # place, so this says nothing about where it happens: filing it under one is how a
+    # book club's night gets onto the book club's own list, cell or no cell beside it.
+    community_id: UUID | None = None
     created_at: datetime
 
     @classmethod
@@ -98,6 +102,7 @@ class Event(Entity):
         venue_name: str | None = None,
         details: str | None = None,
         location_cell: str | None = None,
+        community_id: UUID | None = None,
     ) -> "Event":
         """The one way a new event is made, so nothing is saved without a what and a when."""
         named = title.strip()
@@ -130,5 +135,6 @@ class Event(Entity):
             venue_name=where or None,
             details=described or None,
             location_cell=location_cell or None,
+            community_id=community_id,
             created_at=created_at,
         )

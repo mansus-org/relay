@@ -24,6 +24,10 @@ export type Event = {
   /** Resolution-8 cell of the meeting point. Null means the event cannot be put on a map. */
   readonly locationCell: string | null
   readonly rsvpCount: number
+  /** The community the host filed it under. Null when they filed it with none. */
+  readonly communityId: string | null
+  /** Its name, so a card can say who it is for without a second request. Null with no community. */
+  readonly communityName: string | null
 }
 
 /** Only `GET /events/:id` answers whether you are going, and only when it got a token. */
@@ -46,24 +50,38 @@ export type NewEvent = {
   venueName?: string
   details?: string
   locationCell?: string
+  /** Leave it out to file the event with no community. Only one of yours will be taken. */
+  communityId?: string
 }
 
 /**
  * Every answer is a word now: 'already-going' is a second RSVP refused (409), not a second place.
  * The server's own text is not carried, the same way the communities repository drops it.
+ * 'not-a-member' is a 403 on the create form, where it cannot mean "sign in" — you are signed in,
+ * you are just not in the community you tried to file under.
  */
-export type EventError = ApiError | 'not-found' | 'unauthorized' | 'already-going' | 'not-going'
+export type EventError = ApiError | 'not-found' | 'unauthorized' | 'not-a-member' | 'already-going' | 'not-going'
 
 const EVENT_MESSAGES: Record<EventError, string> = {
   network: 'Could not reach Relay. Check your connection and try again.',
   unexpected: 'Something went wrong with that event.',
   'not-found': 'That event is gone.',
   unauthorized: 'Sign in to do that with an event.',
+  'not-a-member': 'You are not in that community, so you cannot plan something for it.',
   'already-going': "You're already going.",
   'not-going': "You weren't going to that one.",
 }
 
 export const eventErrorMessage = (error: EventError): string => EVENT_MESSAGES[error]
+
+/**
+ * The create form's words. A 404 there cannot be about the event, which does not exist yet: it is
+ * the community that has gone walkabout, and saying "that event is gone" would send the reader away.
+ */
+export const createEventMessage = (error: EventError): string =>
+  error === 'not-found'
+    ? 'That community is not there any more. Pick another one, or file it with no community.'
+    : eventErrorMessage(error)
 
 /** Reading the list can only fail on transport, and "that event" would name nothing. */
 export const eventsListMessage = (error: ApiError): string =>
@@ -193,6 +211,8 @@ export type EventDraft = {
   venueName: string
   details: string
   locationCell: string | null
+  /** The community this event will be filed under. Null files it with none. */
+  communityId: string | null
 }
 
 export type DraftErrors = { title?: string; startsAt?: string; endsAt?: string; details?: string }
@@ -225,5 +245,6 @@ export const draftToPayload = (draft: EventDraft): NewEvent => {
   const details = draft.details.trim()
   if (details) payload.details = details
   if (draft.locationCell) payload.locationCell = draft.locationCell
+  if (draft.communityId) payload.communityId = draft.communityId
   return payload
 }

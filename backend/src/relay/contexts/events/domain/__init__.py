@@ -8,6 +8,11 @@ from relay.contexts.events.domain.cells import (
     InvalidRadiusError,
     UnknownCellError,
 )
+from relay.contexts.events.domain.community import (
+    CommunityError,
+    CommunityNotFoundError,
+    NotAMemberError,
+)
 from relay.contexts.events.domain.event import (
     MAX_DETAILS_LENGTH,
     MAX_TITLE_LENGTH,
@@ -22,10 +27,12 @@ from relay.contexts.events.domain.listing import (
     EventListingPage,
     ListingStart,
     UnknownPageError,
+    marker_after,
 )
 from relay.contexts.events.domain.ports import (
     CellNeighbourhood,
     CellStandard,
+    Communities,
     EventRepository,
     RsvpRepository,
 )
@@ -46,6 +53,9 @@ __all__ = [
     "CellError",
     "CellNeighbourhood",
     "CellStandard",
+    "Communities",
+    "CommunityError",
+    "CommunityNotFoundError",
     "Event",
     "EventDetails",
     "EventListingPage",
@@ -54,6 +64,7 @@ __all__ = [
     "InvalidRadiusError",
     "InvalidTimeError",
     "ListingStart",
+    "NotAMemberError",
     "NotGoingError",
     "Rsvp",
     "RsvpOutcome",
@@ -61,5 +72,6 @@ __all__ = [
     "UnknownCellError",
     "UnknownPageError",
     "instant",
+    "marker_after",
     "zoned_instant",
 ]

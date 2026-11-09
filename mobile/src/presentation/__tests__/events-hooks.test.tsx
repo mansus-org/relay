@@ -2,6 +2,7 @@ import { act, create } from 'react-test-renderer'
 
 import type { UseCases } from '../../application'
 import { err, ok, type Event, type EventDetail, type LatLng, type NearbyEvent } from '../../domain'
+import { makeCommunity } from '../../testing/fakes'
 import { useCreateEvent, useEventDetail, useEvents } from '../use-events'
 import { UseCasesProvider } from '../use-cases'
 
@@ -38,6 +39,8 @@ const makeEvent = (id: string, over: Partial<Event> = {}): Event => ({
   venueName: null,
   details: null,
   locationCell: 'cell-1',
+  communityId: null,
+  communityName: null,
   rsvpCount: 2,
   ...over,
 })
@@ -191,9 +194,18 @@ describe('useEventDetail', () => {
 
 describe('useCreateEvent', () => {
   const filled = { title: 'Sunday market', startsAt: new Date(2026, 10, 26, 19, 0) }
+  const community = { ...makeCommunity('c1') }
+
+  /** The form as it opens: located, and knowing which communities the reader is in. */
+  const form = (overrides: Partial<UseCases> = {}) =>
+    mount(useCreateEvent, {
+      resolveLocation: jest.fn(async () => located),
+      listJoinedCommunities: jest.fn(async () => ok([community])),
+      ...overrides,
+    } as unknown as Partial<UseCases>)
 
   it('offers the place you are standing as the place of the event', async () => {
-    const t = mount(useCreateEvent, { resolveLocation: jest.fn(async () => located) } as unknown as Partial<UseCases>)
+    const t = form()
     await flush()
 
     expect(t.result.current.state.draft.locationCell).toBe('cell-1')
@@ -203,7 +215,7 @@ describe('useCreateEvent', () => {
 
   it('does not post a nameless event, and says which box to fix', async () => {
     const createEvent = jest.fn()
-    const t = mount(useCreateEvent, { resolveLocation: jest.fn(async () => located), createEvent } as unknown as Partial<UseCases>)
+    const t = form({ createEvent })
     await flush()
     let id: string | null = null
     await act(async () => void (id = await t.result.current.submit()))
@@ -216,7 +228,7 @@ describe('useCreateEvent', () => {
 
   it('posts what the host wrote and takes the reader to the event it made', async () => {
     const createEvent = jest.fn(async () => ok({ ...makeEvent('new'), at: null, distanceKm: null }))
-    const t = mount(useCreateEvent, { resolveLocation: jest.fn(async () => located), createEvent } as unknown as Partial<UseCases>)
+    const t = form({ createEvent })
     await flush()
     await act(async () => void t.result.current.set(filled))
     let id: string | null = null
@@ -228,7 +240,7 @@ describe('useCreateEvent', () => {
   })
 
   it('steps the whole evening along with the start, so an end is never left behind', async () => {
-    const t = mount(useCreateEvent, { resolveLocation: jest.fn(async () => located) } as unknown as Partial<UseCases>)
+    const t = form()
     await flush()
     await act(async () => void t.result.current.set({ ...filled, endsAt: new Date(2026, 10, 26, 22, 0) }))
     await act(async () => void t.result.current.shiftStart(3_600_000))
@@ -239,10 +251,7 @@ describe('useCreateEvent', () => {
   })
 
   it('leaves the form alone to hear what the server said', async () => {
-    const t = mount(useCreateEvent, {
-      resolveLocation: jest.fn(async () => located),
-      createEvent: jest.fn(async () => err('unexpected')),
-    } as unknown as Partial<UseCases>)
+    const t = form({ createEvent: jest.fn(async () => err('unexpected' as const)) })
     await flush()
     await act(async () => void t.result.current.set(filled))
     let id: string | null = null
@@ -251,6 +260,44 @@ describe('useCreateEvent', () => {
     expect(id).toBeNull()
     expect(t.result.current.state).toMatchObject({ busy: false })
     expect(t.result.current.state.error).toBeTruthy()
+    t.unmount()
+  })
+
+  it('lists the communities you belong to, and files the event under the one you picked', async () => {
+    const createEvent = jest.fn(async () => ok({ ...makeEvent('new'), at: null, distanceKm: null }))
+    const t = form({ createEvent })
+    await flush()
+
+    expect(t.result.current.state.communities.map((c) => c.id)).toEqual(['c1'])
+    await act(async () => void t.result.current.set(filled))
+    await act(async () => void t.result.current.toggleCommunity('c1'))
+    expect(t.result.current.state.draft.communityId).toBe('c1')
+    await act(async () => void (await t.result.current.submit()))
+
+    expect(createEvent).toHaveBeenCalledWith(expect.objectContaining({ communityId: 'c1' }))
+    t.unmount()
+  })
+
+  it('takes the community back off when you tap the one that is already on', async () => {
+    const t = form()
+    await flush()
+    await act(async () => void t.result.current.toggleCommunity('c1'))
+    await act(async () => void t.result.current.toggleCommunity('c1'))
+
+    expect(t.result.current.state.draft.communityId).toBeNull()
+    t.unmount()
+  })
+
+  it('says you are not in that community when the server turns the filing down', async () => {
+    const t = form({ createEvent: jest.fn(async () => err('not-a-member' as const)) })
+    await flush()
+    await act(async () => void t.result.current.set(filled))
+    await act(async () => void t.result.current.toggleCommunity('c1'))
+    let id: string | null = null
+    await act(async () => void (id = await t.result.current.submit()))
+
+    expect(id).toBeNull()
+    expect(t.result.current.state.error).toMatch(/community/i)
     t.unmount()
   })
 })
